@@ -306,6 +306,7 @@ async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
                 cultivars.c.name.label("cultivar_name"),
                 standorte.c.light,
                 standorte.c.type.label("standort_type"),
+                standorte.c.windows,
             )
             .join(species, species.c.id == plants.c.species_id)
             .join(standorte, standorte.c.id == plants.c.standort_id)
@@ -327,7 +328,7 @@ async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
         bundesland=g.location.bundesland,
         fertiliser=g.preferences.fertiliser,
         eco_defaults=g.preferences.eco_defaults,
-        window=r.window_dir,
+        window=r.window_dir or ", ".join(r.windows) or "keins",  # the nearest one, else all of the room
         window_distance=r.window_distance,
         pot_cm=r.pot_cm,
         pot_material=r.pot_material,

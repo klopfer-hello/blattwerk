@@ -34,7 +34,13 @@ _active_count = (
 
 def _out(row: Row[Any]) -> Standort:
     return Standort(
-        id=row.id, name=row.name, light=row.light, type=row.type, notes=row.notes, plant_count=row.plant_count
+        id=row.id,
+        name=row.name,
+        light=row.light,
+        type=row.type,
+        windows=row.windows,
+        notes=row.notes,
+        plant_count=row.plant_count,
     )
 
 

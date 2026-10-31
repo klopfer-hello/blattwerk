@@ -95,6 +95,7 @@ Ref = Annotated[str, Field(min_length=1, max_length=120)]
 Light = Literal["sonnig", "halbschattig", "schattig"]
 StandortType = Literal["beet", "gemuesebeet", "rasen", "hecke", "kuebelplatz", "gewaechshaus", "sonstiges", "zimmer"]
 Window = Literal["N", "O", "S", "W", "keins"]
+Direction = Literal["N", "O", "S", "W"]
 WindowDistance = Literal["fensterbank", "bis_1m", "1_2m", "raum"]
 PotMaterial = Literal["kunststoff", "ton", "keramik", "glas"]
 Form = Literal[
@@ -107,16 +108,20 @@ class StandortIn(Strict):
     """F-ST-2. A place in the garden; plants refer to it."""
 
     name: Name60
-    light: Light | None = None  # outdoors only; indoors the plant's window decides (M11)
+    light: Light | None = None  # outdoors only; indoors the windows and the distance to them decide (M11)
     type: StandortType
+    windows: Annotated[list[Direction], Field(max_length=4)] = []  # a room: the directions its windows face
     notes: Annotated[str, Field(max_length=500)] = ""
 
     @model_validator(mode="after")
     def _light(self) -> "StandortIn":
         if self.type == "zimmer":
             self.light = None  # a room has no "sonnig": where in the room the plant stands counts
+            self.windows = [d for d in ("N", "O", "S", "W") if d in self.windows]
         elif self.light is None:
             raise ValueError("light is required outdoors")
+        else:
+            self.windows = []
         return self
 
 
@@ -166,6 +171,7 @@ class StandortRef(BaseModel):
     light: Light | None  # None: the Standort was deleted meanwhile (see plants._expand)
     type: StandortType | None = None
     indoor: bool = False  # a Zimmer (M11)
+    windows: list[Direction] = []
 
 
 class Plant(BaseModel):

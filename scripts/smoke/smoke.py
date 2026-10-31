@@ -51,14 +51,16 @@ def seed() -> dict[str, str]:
     for name, light, typ in (("Beet am Zaun", "sonnig", "beet"), ("Hecke Nord", "halbschattig", "hecke"),
                              ("Terrasse", "sonnig", "kuebelplatz"), ("Gewächshaus", "sonnig", "gewaechshaus"),
                              ("Wohnzimmer", "halbschattig", "zimmer")):  # fmt: skip
-        sites[typ] = api("POST", "/standorte", {"name": name, "light": light, "type": typ, "notes": ""})["id"]  # type: ignore[index]
+        windows = ["O"] if typ == "zimmer" else []
+        sites[typ] = api("POST", "/standorte", {"name": name, "light": light, "type": typ, "windows": windows,
+                                                "notes": ""})["id"]  # type: ignore[index]
     plants = {}
     for key, body in {
         "apfel": {"species_id": "malus-domestica", "standort_id": sites["beet"], "form": "Spindel", "planted_year": 2020},
         "hecke": {"species_id": "carpinus-betulus", "standort_id": sites["hecke"], "form": "Hecke"},
         "kuebel": {"species_id": "malus-domestica", "standort_id": sites["kuebelplatz"], "in_container": True,
                    "nickname": "Säulenapfel Terrasse"},
-        "zimmer": {"species_id": "monstera-deliciosa", "standort_id": sites["zimmer"], "window_dir": "O",
+        "zimmer": {"species_id": "monstera-deliciosa", "standort_id": sites["zimmer"],
                    "window_distance": "bis_1m", "pot_cm": 24, "pot_material": "kunststoff"},
     }.items():  # fmt: skip
         plants[key] = api("POST", "/plants", body)["id"]  # type: ignore[index]

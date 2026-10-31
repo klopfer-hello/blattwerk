@@ -42,6 +42,7 @@ _query: Select[Any] = (
         standorte.c.name.label("standort_name"),
         standorte.c.light,
         standorte.c.type.label("standort_type"),
+        standorte.c.windows,
     )
     .join(species, species.c.id == plants.c.species_id)
     .join(standorte, standorte.c.id == plants.c.standort_id)
@@ -68,6 +69,7 @@ def _out(r: Row[Any]) -> Plant:
                 "light": r.light,
                 "type": r.standort_type,
                 "indoor": r.standort_type == INDOOR,
+                "windows": r.windows,
             },
             "archived": r.archived_at is not None,
         }
@@ -86,11 +88,15 @@ async def _check_refs(c: AsyncConnection, body: PlantIn) -> bool:
         select(cultivars.c.id).where(cultivars.c.id == body.cultivar_id, cultivars.c.species_id == body.species_id)
     ):
         raise invalid("cultivar_id", "unknown Sorte for this species")
-    found = (await c.execute(select(standorte.c.type).where(standorte.c.id == body.standort_id))).first()
+    found = (
+        await c.execute(select(standorte.c.type, standorte.c.windows).where(standorte.c.id == body.standort_id))
+    ).first()
     if found is None:
         raise invalid("standort_id", "unknown Standort")
     if found.type != INDOOR and body.indoor_fields():
         raise invalid("window_dir", "window and pot only for indoor plants")
+    if body.window_dir is not None and body.window_dir not in found.windows:  # one of the room's windows
+        raise invalid("window_dir", "the room has no window in this direction")
     return bool(found.type == INDOOR)
 
 

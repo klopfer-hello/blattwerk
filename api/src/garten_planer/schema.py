@@ -99,7 +99,8 @@ standorte = Table(
     Column("id", Text, primary_key=True),
     Column("name", Text, nullable=False),
     Column("name_key", Text, nullable=False, unique=True),
-    Column("light", Text),  # outdoors only; indoors the window on the plant counts (M11)
+    Column("light", Text),  # outdoors only; indoors the windows and the distance to them count (M11)
+    Column("windows", JSONB, nullable=False, server_default=text("'[]'::jsonb")),  # a room: N/O/S/W it faces
     Column("type", Text, nullable=False),
     Column("notes", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -121,7 +122,7 @@ plants = Table(
     Column("planted_year", Integer),
     Column("girth_cm", Integer),
     Column("in_container", Boolean, nullable=False),
-    Column("window_dir", Text),  # indoor only (M11): direction of the nearest window
+    Column("window_dir", Text),  # indoor only (M11): the nearest window, when the room has several
     Column("window_distance", Text),
     Column("pot_cm", SmallInteger),
     Column("pot_material", Text),

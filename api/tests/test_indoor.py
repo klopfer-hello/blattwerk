@@ -22,6 +22,7 @@ from tests.conftest import BASE, DATABASE_URL
 H = {"Origin": BASE}
 NOV_2 = date(2026, 11, 2)
 INDOOR = {"window_dir": "S", "window_distance": "bis_1m", "pot_cm": 18, "pot_material": "ton"}
+ROOM_WINDOWS = ["O", "S"]
 
 
 def on(client: TestClient, day: date) -> None:
@@ -31,7 +32,8 @@ def on(client: TestClient, day: date) -> None:
 
 def standort(client: TestClient, typ: str, name: str) -> str:
     light = None if typ == "zimmer" else "halbschattig"
-    r = client.post("/api/standorte", json={"name": name, "light": light, "type": typ}, headers=H)
+    windows = ROOM_WINDOWS if typ == "zimmer" else []
+    r = client.post("/api/standorte", json={"name": name, "light": light, "type": typ, "windows": windows}, headers=H)
     assert r.status_code == 201, r.text
     return str(r.json()["id"])
 
@@ -66,6 +68,19 @@ def test_a_room_has_no_light_outdoors_needs_it(client: TestClient) -> None:
     r = client.post("/api/standorte", json={"name": "Bad", "light": "sonnig", "type": "zimmer"}, headers=H)
     assert r.status_code == 201 and r.json()["light"] is None  # ignored: the window on the plant counts
     assert client.post("/api/standorte", json={"name": "Beet", "type": "beet"}, headers=H).status_code == 422
+
+
+def test_windows_belong_to_the_room(client: TestClient) -> None:
+    r = client.post("/api/standorte", json={"name": "Eckzimmer", "type": "zimmer", "windows": ["W", "S", "S"]},
+                    headers=H)  # fmt: skip
+    assert r.json()["windows"] == ["S", "W"]  # sorted N, O, S, W; once each
+    p = plant(client, r.json()["id"], window_distance="1_2m")
+    assert client.get(f"/api/plants/{p['id']}").json()["standort"]["windows"] == ["S", "W"]
+    bad = {"species_id": "malus-domestica", "standort_id": r.json()["id"], "window_dir": "N"}
+    assert client.post("/api/plants", json=bad, headers=H).status_code == 422  # no north window in that room
+    garden = client.post("/api/standorte", json={"name": "Wiese", "light": "sonnig", "type": "rasen", "windows": ["S"]},
+                         headers=H)  # fmt: skip
+    assert garden.json()["windows"] == []
 
 
 def test_window_and_pot_only_indoors(client: TestClient) -> None:
@@ -284,7 +299,7 @@ def test_indoor_prompt_has_window_and_pot() -> None:
                        fertiliser="egal", eco_defaults=True, window="S", window_distance="bis_1m", pot_cm=18,
                        pot_material="ton")  # fmt: skip
     prompt = plan.build_prompt(f)
-    assert '"fenster": "S"' in prompt and '"topf_cm": 18' in prompt
+    assert '"fenster_richtung": "S"' in prompt and '"topf_cm": 18' in prompt
     assert plan.system_for(f) is plan.SYSTEM_INDOOR and "giessen" in plan.SYSTEM_INDOOR
 
 

@@ -4,7 +4,7 @@
 // plants (links from the still-demo Heute/Kalender) render as DemoPlantDetail.
 import { useEffect, useRef, useState } from 'react';
 import {
-  ApiError, DISTANCES, FORMS, GROWTH, INDOOR_TYPE, POT_MATERIALS, STANDORT_TYPES, WINDOWS, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
+  ApiError, DIRECTIONS, DISTANCES, FORMS, GROWTH, INDOOR_TYPE, POT_MATERIALS, STANDORT_TYPES, api, type AiCandidate, type Candidate, type Direction, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
   type HistoryItem, type PlanState, type Standort, type Task,
 } from '../api';
 import { PhotoThumbs } from '../components/Photos';
@@ -16,6 +16,11 @@ const LIGHT: Record<Light, { bg: string; fg: string }> = {
   sonnig: { bg: '#FDF1CF', fg: '#6B4A00' }, halbschattig: { bg: '#E9EEF0', fg: '#2F4550' }, schattig: { bg: '#E1E4EA', fg: '#2B3244' },
 };
 export const LightChip = ({ light }: { light: Light | null }) => (light ? <span className="chip" style={{ background: LIGHT[light].bg, color: LIGHT[light].fg }}>{light}</span> : null);
+function windowText(p: Plant): string {
+  const dirs = p.window_dir && p.window_dir !== 'keins' ? [p.window_dir as Direction] : p.standort.windows ?? [];
+  if (!dirs.length) return 'keins';
+  return `${dirs.map((d) => DIRECTIONS[d]).join('/')}${p.window_distance ? `, ${DISTANCES[p.window_distance]}` : ''}`;
+}
 const plantTitle = (p: Plant) => p.nickname || `${p.species.german}${p.cultivar ? ` ‘${p.cultivar.name}’` : ''}`;
 const fail = (e: unknown) => (e instanceof ApiError ? e : new ApiError(0, 'Unbekannter Fehler'));
 
@@ -134,7 +139,7 @@ export function PlantDetail({ id }: { id: string }) {
   }
   const facts = p.standort.indoor ? [
     ['Zimmer', p.standort.name],
-    ['Fenster', p.window_dir ? (p.window_dir === 'keins' ? 'keins' : `${p.window_dir}${p.window_distance ? `, ${DISTANCES[p.window_distance]}` : ''}`) : '–'],
+    ['Fenster', windowText(p)],
     ['Topf', p.pot_cm || p.pot_material ? [p.pot_cm ? `${p.pot_cm} cm` : '', p.pot_material ? POT_MATERIALS[p.pot_material] : ''].filter(Boolean).join(' ') : '–'],
     ['Seit', p.planted_year?.toString() ?? '–'],
   ] : [
@@ -468,7 +473,7 @@ export function PlantForm({ id }: { id?: string }) {
       <StandortPicker standorte={standorte} value={v.standort_id} onChange={(sid) => set({ standort_id: sid })}
         onCreated={(s) => { setStandorte((xs) => [...xs, s].sort((a, b) => a.name.localeCompare(b.name))); set({ standort_id: s.id }); }} />
       {fieldError('standort_id') && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldError('standort_id')}</span>}
-      {indoor && <IndoorFields v={v} set={set} num={num} />}
+      {indoor && <IndoorFields v={v} set={set} num={num} windows={standorte.find((s) => s.id === v.standort_id)?.windows ?? []} />}
 
       <div className="grid2">
         <div className="field">
@@ -540,11 +545,17 @@ function Segments<K extends string>({ label, options, value, onChange }: { label
   );
 }
 
-function IndoorFields({ v, set, num }: { v: PlantIn; set: (p: Partial<PlantIn>) => void; num: (s: string) => number | null }) {
+function IndoorFields({ v, set, num, windows }: { v: PlantIn; set: (p: Partial<PlantIn>) => void; num: (s: string) => number | null; windows: Direction[] }) {
+  const several = Object.fromEntries(windows.map((d) => [d, `${DIRECTIONS[d]}fenster`])) as Record<Direction, string>;
+  useEffect(() => {   // the room changed: a window it does not have is not the nearest one
+    if (v.window_dir && !windows.includes(v.window_dir as Direction)) set({ window_dir: null });
+  }, [windows.join()]);  // eslint-disable-line react-hooks/exhaustive-deps
   return (
     <div className="stack" style={{ gap: 12 }}>
-      <Segments label="Fenster in Richtung" options={WINDOWS} value={v.window_dir} onChange={(k) => set({ window_dir: k })} />
-      <Segments label="Abstand zum Fenster" options={DISTANCES} value={v.window_distance} onChange={(k) => set({ window_distance: k })} />
+      {windows.length === 0 && <span className="small muted">Das Zimmer hat kein Fenster eingetragen (Mehr → Standorte).</span>}
+      {windows.length === 1 && <span className="small muted">Fenster des Zimmers: {DIRECTIONS[windows[0]]}</span>}
+      {windows.length > 1 && <Segments label="Welches Fenster ist am nächsten?" options={several} value={v.window_dir as Direction | null} onChange={(k) => set({ window_dir: k })} />}
+      {windows.length > 0 && <Segments label="Abstand zum Fenster" options={DISTANCES} value={v.window_distance} onChange={(k) => set({ window_distance: k })} />}
       <div className="grid2">
         <div className="field"><label htmlFor="pot">Topf Ø (cm)</label><input id="pot" className="input" inputMode="numeric" value={v.pot_cm ?? ''} onChange={(e) => set({ pot_cm: num(e.target.value) })} /></div>
         <div className="field"><label htmlFor="mat">Topf-Material</label>
@@ -555,6 +566,20 @@ function IndoorFields({ v, set, num }: { v: PlantIn; set: (p: Partial<PlantIn>) 
         </div>
       </div>
       <span className="tiny">Licht, Topf und Jahreszeit bestimmen den Gieß-Rhythmus. Frostwarnungen und Schnittregeln gelten drinnen nicht.</span>
+    </div>
+  );
+}
+
+function RoomWindows({ value, onChange }: { value: Direction[]; onChange: (w: Direction[]) => void }) {
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <span className="label">Fenster nach … (mehrere möglich)</span>
+      <div className="row" role="group" aria-label="Fenster nach">
+        {(Object.keys(DIRECTIONS) as Direction[]).map((d) => (
+          <button key={d} className="seg" aria-pressed={value.includes(d)} onClick={() => onChange(value.includes(d) ? value.filter((x) => x !== d) : [...value, d])}>{DIRECTIONS[d]}</button>
+        ))}
+      </div>
+      <span className="tiny">In welche Himmelsrichtung schauen die Fenster? Süd = viel Sonne, Nord = wenig. Kein Fenster: nichts wählen.</span>
     </div>
   );
 }
@@ -601,12 +626,13 @@ function StandortPicker({ standorte, value, onChange, onCreated }: { standorte: 
   const [name, setName] = useState('');
   const [light, setLight] = useState<Light>('sonnig');
   const [inside, setInside] = useState(false);
+  const [windows, setWindows] = useState<Direction[]>([]);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   async function add() {
     if (busy) return;
     setErr(''); setBusy(true);
-    try { onCreated(await api.createStandort({ name, light: inside ? null : light, type: inside ? INDOOR_TYPE : 'beet', notes: '' })); setAdding(false); setName(''); }
+    try { onCreated(await api.createStandort({ name, light: inside ? null : light, type: inside ? INDOOR_TYPE : 'beet', windows: inside ? windows : [], notes: '' })); setAdding(false); setName(''); }
     catch (e) { setErr(e instanceof ApiError && e.status === 409 ? 'Diesen Standort gibt es schon.' : e instanceof ApiError && e.status === 422 ? 'Bitte einen Namen (max. 60 Zeichen) eingeben.' : fail(e).message); }
     finally { setBusy(false); }
   }
@@ -621,7 +647,7 @@ function StandortPicker({ standorte, value, onChange, onCreated }: { standorte: 
         <div className="outline stack" style={{ gap: 10 }}>
           <InOut indoor={inside} onChange={setInside} />
           <div className="field"><label htmlFor="sname">Name</label><input id="sname" className="input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder={inside ? 'z. B. Wohnzimmer' : 'z. B. Beet am Zaun'} /></div>
-          {!inside && (
+          {inside ? <RoomWindows value={windows} onChange={setWindows} /> : (
             <div className="row" role="group" aria-label="Licht">
               {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={light === l} onClick={() => setLight(l)}>{l}</button>)}
             </div>
@@ -659,7 +685,7 @@ export function Standorte() {
       {list?.map((s) => (
         <div key={s.id} className="card stack" style={{ gap: 6 }}>
           <div className="between"><strong style={{ fontSize: 17 }}>{s.name}</strong><LightChip light={s.light} /></div>
-          <span className="small muted">{s.type === INDOOR_TYPE ? 'Drinnen' : `Draußen · ${STANDORT_TYPES[s.type]}`} · {s.plant_count} {s.plant_count === 1 ? 'Pflanze' : 'Pflanzen'}{s.notes ? ` · ${s.notes}` : ''}</span>
+          <span className="small muted">{s.type === INDOOR_TYPE ? `Drinnen${s.windows?.length ? ` · Fenster nach ${s.windows.map((d) => DIRECTIONS[d]).join(', ')}` : ' · ohne Fenster'}` : `Draußen · ${STANDORT_TYPES[s.type]}`} · {s.plant_count} {s.plant_count === 1 ? 'Pflanze' : 'Pflanzen'}{s.notes ? ` · ${s.notes}` : ''}</span>
           <div className="grid2"><button className="btn" onClick={() => setEdit(s)}>Bearbeiten</button><button className="btn" onClick={() => remove(s)}>Löschen</button></div>
         </div>
       ))}
@@ -668,14 +694,14 @@ export function Standorte() {
 }
 
 function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void }) {
-  const [v, setV] = useState({ name: s?.name ?? '', light: s?.light ?? ('sonnig' as Light), type: s?.type ?? ('beet' as Standort['type']), notes: s?.notes ?? '' });
+  const [v, setV] = useState({ name: s?.name ?? '', light: s?.light ?? ('sonnig' as Light), type: s?.type ?? ('beet' as Standort['type']), windows: s?.windows ?? ([] as Direction[]), notes: s?.notes ?? '' });
   const inside = v.type === INDOOR_TYPE;
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   async function save() {
     if (busy) return;
     setErr(''); setBusy(true);
-    const body = { ...v, light: inside ? null : v.light };
+    const body = { ...v, light: inside ? null : v.light, windows: inside ? v.windows : [] };
     try { if (s) await api.updateStandort(s.id, body); else await api.createStandort(body); onDone(); }
     catch (e) { setErr(e instanceof ApiError && e.status === 409 ? (e.message.includes('indoor') ? 'Mit Pflanzen kann ein Standort nicht zwischen drinnen und draußen wechseln.' : 'Diesen Namen gibt es schon.') : e instanceof ApiError && e.status === 422 ? 'Bitte Eingaben prüfen (Name 1–60 Zeichen).' : fail(e).message); }
     finally { setBusy(false); }
@@ -690,7 +716,12 @@ function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void 
         </div>
       )}
       {v.type === INDOOR_TYPE
-        ? <span className="small muted">Ein Zimmer: Pflanzen hier bekommen Gieß-Erinnerungen, aber keine Frost- und Wetterwarnungen. Wie hell es ist, gibst du bei jeder Pflanze an (Fenster und Abstand).</span>
+        ? (
+          <>
+            <RoomWindows value={v.windows} onChange={(w) => setV({ ...v, windows: w })} />
+            <span className="small muted">Ein Zimmer: Pflanzen hier bekommen Gieß-Erinnerungen, aber keine Frost- und Wetterwarnungen. Bei jeder Pflanze gibst du dann nur noch den Abstand zum Fenster an.</span>
+          </>
+        )
         : (
           <div className="field"><label htmlFor="st">Art</label>
             <select id="st" className="input" value={v.type} onChange={(e) => setV({ ...v, type: e.target.value as Standort['type'] })}>
