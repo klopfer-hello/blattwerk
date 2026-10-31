@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+# Privacy scan + gitleaks on the staged changes (see the security rules).
+# Without Docker gitleaks is skipped here; pre-push then refuses instead.
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+bash "$root/scripts/privacy-scan.sh" --staged
+rc=0; bash "$root/scripts/gitleaks.sh" staged || rc=$?
+if (( rc == 3 )); then echo "pre-commit: gitleaks skipped (Docker not running); pre-push will require it" >&2
+elif (( rc )); then exit "$rc"; fi

@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Last gate before anything is published: privacy scan of every outgoing
+# commit and gitleaks over them. Fails closed (no Docker = no push).
+set -euo pipefail
+root=$(git rev-parse --show-toplevel)
+zero=0000000000000000000000000000000000000000
+while read -r _lref lsha _rref rsha; do
+  [[ $lsha == "$zero" ]] && continue                      # branch deletion
+  if [[ $rsha == "$zero" ]]; then args=("$lsha" --not --remotes); range="$lsha --not --remotes"
+  else args=("$rsha..$lsha"); range="$rsha..$lsha"; fi
+  bash "$root/scripts/privacy-scan.sh" --commits "${args[@]}"
+  bash "$root/scripts/gitleaks.sh" commits "$range" || { echo "pre-push: gitleaks failed or Docker not running: push refused" >&2; exit 1; }
+done

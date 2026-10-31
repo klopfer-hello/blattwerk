@@ -7,3 +7,13 @@ can tick off. The to-dos follow the real season, using local weather and the phe
 German pruning law (BNatSchG §39). When unseasonal frost or a cold wave is coming, the phone gets an urgent push.
 
 Status: requirements phase, no code yet.
+
+## Development
+
+After cloning, run `bash scripts/setup-dev.sh` once. It turns on the repo's git hooks. They check every commit and
+push for personal data (private IPs, LAN host names, user paths, e-mail addresses, tokens) and for secrets
+(gitleaks, run through Docker). Pushing needs Docker running.
+
+## License
+
+[PolyForm Noncommercial 1.0.0](LICENSE).

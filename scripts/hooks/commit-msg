@@ -1,0 +1,4 @@
+#!/usr/bin/env bash
+# Privacy scan on the commit message (see the security rules).
+set -euo pipefail
+bash "$(git rev-parse --show-toplevel)/scripts/privacy-scan.sh" --message "$1"
