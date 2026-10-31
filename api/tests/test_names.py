@@ -209,3 +209,17 @@ def test_attempts_that_never_reached_claude_do_not_use_up_the_day(client: TestCl
             c.execute(text("INSERT INTO name_jobs (id, query, status, candidates, created_at) "
                            "VALUES (:i, 'x', 'failed', '[]', now())"), {"i": f"f{i}"})  # fmt: skip
     assert client.post("/api/species/ai", json={"q": "Apfel"}, headers=H).status_code == 202
+
+
+def test_hardiness_from_the_ai_is_kept_and_can_be_corrected(client: TestClient) -> None:
+    res = ask(client, "Maibeere", {"candidates": [NEU | {"winterhaerte_c": -40}]})
+    sid = client.post(f"/api/species/ai/{res['id']}/pick", json={"index": 0}, headers=H).json()["species_id"]
+    assert client.get(f"/api/species/{sid}").json()["hardiness_c"] == -40
+    body = {"german": ["Maibeere"], "growth": "strauch", "woody": True, "hardiness_c": -35}
+    assert client.put(f"/api/species/{sid}", json=body, headers=H).json()["hardiness_c"] == -35
+    assert client.get("/api/species/nerium-oleander").json()["hardiness_c"] == -5  # the seed has one
+
+
+def test_odd_hardiness_from_the_ai_is_clamped_not_fatal() -> None:
+    assert sanitize({"candidates": [KIRSCHE | {"winterhaerte_c": -50}]})[0].winterhaerte_c == -45
+    assert sanitize({"candidates": [KIRSCHE | {"winterhaerte_c": "kalt"}]})[0].winterhaerte_c is None

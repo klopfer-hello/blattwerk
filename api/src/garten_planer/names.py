@@ -14,7 +14,7 @@ from garten_planer.claude_cli import ClaudeError
 from garten_planer.models import Form, Name60
 from garten_planer.seed import Growth
 
-PROMPT_VERSION = "names-2"
+PROMPT_VERSION = "names-3"
 MAX_CANDIDATES = 5
 FORMS: tuple[str, ...] = Form.__args__  # type: ignore[attr-defined]
 
@@ -34,6 +34,8 @@ Antworte ausschließlich im vorgegebenen JSON-Format.
   wirklich unbekannt, übernimm die Schreibweise und sag es in "note".
 - "form_hint": Säule, Halbstamm, Hochstamm, Busch, Spindel, Spalier, Strauch, Hecke, Solitär, Kübel, Kletterer,
   Horst oder Knolle, wenn die Eingabe eine Form nennt; sonst null.
+- "winterhaerte_c": tiefste Temperatur in °C, die eine eingewachsene Pflanze ausgepflanzt übersteht (z. B. -25
+  für Apfel, -5 für Oleander, 2 für Tomate); null, wenn unklar.
 - "note": höchstens ein kurzer Satz (z. B. "Säulenkirsche, selbstfruchtbar"), sonst leer."""
 
 
@@ -55,6 +57,14 @@ def _latin(v: str) -> str:
     return v
 
 
+def clamp_hardiness(v: object) -> int | None:
+    """A hardiness from the AI: rounded and clamped to -45..15 °C; anything odd counts as unknown."""
+    try:
+        return None if v is None else max(-45, min(15, round(float(v))))  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return None
+
+
 Latin = Annotated[str, Field(min_length=3, max_length=80), AfterValidator(_latin)]
 
 
@@ -68,6 +78,7 @@ class Suggestion(BaseModel):
     woody: bool
     cultivar: Annotated[Name60 | None, BeforeValidator(_clean_cultivar)] = None
     form_hint: Form | None = None
+    winterhaerte_c: Annotated[int | None, BeforeValidator(clamp_hardiness)] = None
     note: Annotated[str, Field(max_length=200)] = ""
 
 
@@ -80,6 +91,7 @@ class _SchemaCandidate(BaseModel):
     woody: bool
     cultivar: Annotated[str, Field(max_length=60)] | None
     form_hint: str | None
+    winterhaerte_c: int | None
     note: Annotated[str, Field(max_length=200)]
 
 

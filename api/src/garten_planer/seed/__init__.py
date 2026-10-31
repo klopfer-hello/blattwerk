@@ -31,6 +31,7 @@ class SeedSpecies(_Strict):
     synonyms: list[str] = []
     growth: Growth
     woody: bool
+    hardiness_c: int | None = None  # °C, planted out (F-WX-5)
     feeder: Feeder | None = None
     cultivars: list[SeedCultivar]
 

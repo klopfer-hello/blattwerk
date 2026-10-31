@@ -146,7 +146,7 @@ def run(fc: list[Hour], now: datetime) -> dict[str, int]:
 def setup_garden(client: TestClient) -> str:
     st = client.post("/api/standorte", json={"name": "Terrasse", "light": "sonnig", "type": "kuebelplatz"},
                      headers=H).json()  # fmt: skip
-    body = {"species_id": "malus-domestica", "standort_id": st["id"], "in_container": True, "nickname": "Kübelapfel"}
+    body = {"species_id": "nerium-oleander", "standort_id": st["id"], "in_container": True, "nickname": "Oleander"}
     pid = str(client.post("/api/plants", json=body, headers=H).json()["id"])
     r = client.post("/api/push/subscriptions", json=sub("https://fcm.googleapis.com/fcm/send/abc"), headers=H)
     assert r.status_code == 201, r.text
@@ -323,3 +323,83 @@ def test_silent_sensors_push_once_a_day(client: TestClient, db: Engine) -> None:
         c.execute(text("DELETE FROM kv WHERE key IN ('sensors_seen', 'sensors_silent_push')"))
     assert check(None, now) is False  # never had sensors: nothing to watch
     assert count(db, "SELECT count(*) FROM push_messages") == 2
+
+
+# ----- ticket 032: hardiness, tubers ------------------------------------------------------------------
+
+LAVENDEL = PlantInfo("p5", "Lavendel (Topf)", in_container=True, growth="strauch", standort_type="kuebelplatz",
+                     latin="Lavandula angustifolia", hardiness=-15)  # fmt: skip
+HORTENSIE = PlantInfo("p6", "Hortensie", in_container=False, growth="strauch", standort_type="beet",
+                      latin="Hydrangea macrophylla", hardiness=-12)  # fmt: skip
+DAHLIE = PlantInfo("p7", "Dahlie", in_container=False, growth="knolle", standort_type="beet", latin="Dahlia",
+                   hardiness=0)  # fmt: skip
+
+
+def test_a_hardy_potted_plant_stays_outside_at_light_frost() -> None:
+    assert actions("frost", [LAVENDEL], -3.0, date(2026, 10, 20)) == []  # pot: -15 + 10 = -5
+    assert [a.key for a in actions("frost", [LAVENDEL], -6.0, date(2026, 10, 20))] == ["kuebel"]
+
+
+def test_planted_out_plants_get_protection_at_their_own_hardiness() -> None:
+    assert "empfindlich" not in {a.key for a in actions("strong_frost", [HORTENSIE], -8.0, date(2027, 1, 10))}
+    keys = {a.key: a.plant_ids for a in actions("strong_frost", [HORTENSIE], -12.5, date(2027, 1, 10))}
+    assert keys["empfindlich"] == ["p6"]
+
+
+def test_dahlias_are_lifted_at_the_first_autumn_frost() -> None:
+    keys = {a.key: a.plant_ids for a in actions("frost", [DAHLIE], -2.5, date(2026, 10, 20))}
+    assert keys == {"knollen": ["p7"]}
+
+
+def test_unknown_hardiness_stays_conservative() -> None:
+    assert [a.key for a in actions("frost", [KUEBEL], -2.1, date(2026, 10, 20))] == ["kuebel"]
+
+
+def test_first_frost_of_the_winter_half_year_is_reported() -> None:
+    now = at(2026, 11, 10)
+    temps = [5] * 14 + [-3] + [5] * 30
+    assert detect(hours(now, temps), now) == []  # frost is normal in November ...
+    assert [e.kind for e in detect(hours(now, temps), now, first_frost=True)] == ["frost"]  # ... except the first
+
+
+def test_tubers_once_and_only_tender_ones() -> None:
+    hardy_bulb = PlantInfo("p8", "Winterling", in_container=False, growth="knolle", standort_type="beet",
+                           latin="Eranthis hyemalis", hardiness=-25)  # fmt: skip
+    assert {a.key for a in actions("frost", [DAHLIE, hardy_bulb], -2.5, date(2026, 10, 20))} == {"knollen"}
+    assert {a.plant_ids[0] for a in actions("frost", [DAHLIE, hardy_bulb], -2.5, date(2026, 10, 20))} == {"p7"}
+    assert actions("frost", [DAHLIE], -2.5, date(2026, 10, 25), tubers_done=True) == [] or all(
+        a.key != "knollen" for a in actions("frost", [DAHLIE], -2.5, date(2026, 10, 25), tubers_done=True)
+    )
+
+
+def test_late_frost_protects_berries_and_tender_shoots() -> None:
+    erdbeere = PlantInfo("p9", "Erdbeere", False, "staude", "beet", "Fragaria " + chr(0xD7) + " ananassa", -15)
+    keys = {a.key: a.plant_ids for a in actions("late_frost", [erdbeere, HORTENSIE], -1.0, date(2026, 5, 2))}
+    assert sorted(keys["bluete"]) == ["p6", "p9"]
+
+
+def test_an_action_that_dropped_out_comes_back(client: TestClient, db: Engine) -> None:
+    st = client.post("/api/standorte", json={"name": "T", "light": "sonnig", "type": "kuebelplatz"}, headers=H).json()
+    client.post(
+        "/api/plants",
+        json={"species_id": "lavandula-angustifolia", "standort_id": st["id"], "in_container": True},
+        headers=H,
+    )  # fmt: skip  (pot: at risk from -4 °C)
+    now = at(2026, 10, 12, 10)
+    night = [5] * 14
+    run(hours(now, [*night, -6] + [6] * 30), now)
+    run(hours(now, [*night, -3] + [6] * 30), now)  # warmer: the pot is fine, the action drops out
+    assert count(db, "SELECT count(*) FROM tasks WHERE source = 'alert' AND enabled") == 0
+    run(hours(now, [*night, -6] + [6] * 30), now)  # colder again: the action is back
+    assert count(db, "SELECT count(*) FROM tasks WHERE source = 'alert' AND enabled") == 1
+
+
+def test_no_push_when_no_plant_is_affected(client: TestClient, db: Engine) -> None:
+    st = client.post("/api/standorte", json={"name": "B", "light": "sonnig", "type": "beet"}, headers=H).json()
+    client.post("/api/plants", json={"species_id": "carpinus-betulus", "standort_id": st["id"]}, headers=H)
+    client.post("/api/push/subscriptions", json=sub("https://fcm.googleapis.com/fcm/send/hardy"), headers=H)
+    now = at(2026, 10, 12, 10)
+    run(hours(now, [5] * 14 + [-3] + [6] * 30), now)
+    assert (
+        count(db, "SELECT count(*) FROM weather_alerts") == 1 and count(db, "SELECT count(*) FROM push_messages") == 0
+    )

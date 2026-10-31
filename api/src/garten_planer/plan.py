@@ -18,15 +18,16 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, ValidationError
+from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, ValidationError
 from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from garten_planer.claude_cli import ClaudeError
 from garten_planer.models import TaskIn
-from garten_planer.schema import care_plans, tasks, todos
+from garten_planer.names import clamp_hardiness
+from garten_planer.schema import care_plans, plants, species, tasks, todos
 
-PROMPT_VERSION = "plan-2"  # plan-2: phenological triggers (M7)
+PROMPT_VERSION = "plan-3"  # plan-2: phenological triggers (M7)
 WATERING = re.compile(r"gie(ß|ss)|w(ä|ae)ssern|bew(ä|ae)sser|wassergabe|tr(ä|ae)nken|einschl(ä|ae)mmen", re.IGNORECASE)
 # A cut the AI filed under another category must still meet § 39 (legal rules are code, not prompt).
 CUTTING = re.compile(
@@ -61,6 +62,8 @@ Regeln:
   Kirschfruchtfliege, Weißtafeln für Apfelsägewespe), Kontrollen und Behandlung: zuerst mechanisch/biologisch,
   Mittel nur mit Zulassung für Haus- und Kleingarten.
 - Ökologische Empfehlungen beachten, wenn eingeschaltet (Samenstände/Halme über den Winter stehen lassen).
+- "winterhaerte_c": tiefste Temperatur in °C, die diese Pflanze ausgepflanzt übersteht (für Frostwarnungen);
+  null, wenn unklar.
 - Anleitungen als kurze Schritte; "why" in einem Satz. Höchstens 12 Aufgaben, nur das Wichtige."""
 
 
@@ -120,6 +123,7 @@ class _SchemaPest(BaseModel):
 
 
 class _SchemaPlan(BaseModel):
+    winterhaerte_c: int | None
     summary: S600
     confidence: Literal["low", "medium", "high"]
     caveats: S400
@@ -142,6 +146,7 @@ class Pest(_Loose):
 
 
 class _Answer(_Loose):
+    winterhaerte_c: Annotated[int | None, BeforeValidator(clamp_hardiness)] = None
     summary: Annotated[str, Field(min_length=1, max_length=600)]
     confidence: Literal["low", "medium", "high"]
     caveats: Annotated[str, Field(max_length=400)] = ""
@@ -170,6 +175,7 @@ class Plan:
     pests: list[dict[str, str]]
     tasks: list[PlanTask]
     dropped: int
+    hardiness_c: int | None = None  # the AI's value for the species, kept when the species has none
 
 
 @dataclass(frozen=True)
@@ -302,7 +308,7 @@ def sanitize(raw: dict[str, Any]) -> Plan:
             dropped += 1
     if not kept:
         raise ClaudeError("Die KI-Antwort war unvollständig (keine brauchbaren Aufgaben). Bitte nochmal versuchen.")
-    return Plan(a.summary, a.confidence, a.caveats, [p.model_dump() for p in a.pests], kept, dropped)
+    return Plan(a.summary, a.confidence, a.caveats, [p.model_dump() for p in a.pests], kept, dropped, a.winterhaerte_c)
 
 
 async def apply_plan(c: AsyncConnection, plant_id: str, plan: Plan, info: dict[str, Any]) -> tuple[str, list[str]]:
@@ -332,6 +338,13 @@ async def apply_plan(c: AsyncConnection, plant_id: str, plan: Plan, info: dict[s
         )
     ).all()
     old = [r.id for r in previous]
+    if plan.hardiness_c is not None:  # only fills a gap of a species the app added; seed values stay
+        sid = select(plants.c.species_id).where(plants.c.id == plant_id).scalar_subquery()
+        await c.execute(
+            update(species)
+            .where(species.c.id == sid, species.c.source == "user", species.c.hardiness_c.is_(None))
+            .values(hardiness_c=plan.hardiness_c)
+        )
     paused = {r.title.casefold() for r in previous if not r.enabled}  # the user's pause carries over by title
     if old:  # retire the previous plan: open occurrences go, done ones stay as history
         await c.execute(update(tasks).where(tasks.c.id.in_(old)).values(enabled=False, retired=True, updated_at=stamp))

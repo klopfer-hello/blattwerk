@@ -59,9 +59,16 @@ def pick_source(rows: list[dict[str, Any]], now: datetime) -> list[Hour]:
         got = by_source.get(source, [])
         fetched = max((float(r["fetched"]) for r in got if r.get("fetched") is not None), default=None)
         if got and fetched is not None and now - datetime.fromtimestamp(fetched, UTC) < FRESH:
-            return [
-                Hour(_utc(r["time"]), _num(r.get("t_air")), _num(r.get("t_ground")), _num(r.get("gust"))) for r in got
-            ]
+            om = by_source.get("openmeteo", [])
+            om_fetched = max((float(r["fetched"]) for r in om if r.get("fetched") is not None), default=None)
+            om_fresh = om_fetched is not None and now - datetime.fromtimestamp(om_fetched, UTC) < FRESH
+            ground = {_utc(r["time"]): _num(r.get("t_ground")) for r in om} if om_fresh else {}
+            hours = []
+            for r in got:
+                t = _utc(r["time"])
+                g = _num(r.get("t_ground"))
+                hours.append(Hour(t, _num(r.get("t_air")), g if g is not None else ground.get(t), _num(r.get("gust"))))
+            return hours
     return []
 
 
@@ -89,13 +96,16 @@ async def load_forecast(db: Influx, now: datetime) -> list[Hour]:
 async def _plants(c: AsyncConnection) -> list[PlantInfo]:
     rows = await c.execute(
         select(plants.c.id, plants.c.nickname, plants.c.in_container, species.c.german, species.c.latin,
-               species.c.growth, standorte.c.type)
+               species.c.growth, species.c.hardiness_c, standorte.c.type)
         .join(species, species.c.id == plants.c.species_id)
         .join(standorte, standorte.c.id == plants.c.standort_id)
         .where(plants.c.archived_at.is_(None))
         .order_by(species.c.german)
     )  # fmt: skip
-    return [PlantInfo(r.id, r.nickname or r.german[0], r.in_container, r.growth, r.type, r.latin) for r in rows]
+    return [
+        PlantInfo(r.id, r.nickname or r.german[0], r.in_container, r.growth, r.type, r.latin, r.hardiness_c)
+        for r in rows
+    ]
 
 
 def _when(e: Event) -> str:
@@ -133,7 +143,7 @@ async def _sync_tasks(
         values = _task_values(e, a, today)
         row = (
             await c.execute(
-                select(tasks.c.id, tasks.c.generation).where(
+                select(tasks.c.id, tasks.c.generation, tasks.c.retired).where(
                     tasks.c.alert_id == alert_id, tasks.c.alert_action == a.key
                 )
             )
@@ -149,7 +159,8 @@ async def _sync_tasks(
             )  # fmt: skip
             ids.append(tid)
             continue
-        extra: dict[str, Any] = {"enabled": True, "retired": False, "generation": row.generation + 1} if restart else {}
+        back = restart or row.retired  # the alert returned, or this action dropped out and is needed again
+        extra: dict[str, Any] = {"enabled": True, "retired": False, "generation": row.generation + 1} if back else {}
         await c.execute(update(tasks).where(tasks.c.id == row.id).values(updated_at=stamp, **values, **extra))
         ids.append(row.id)
     gone = list(
@@ -209,7 +220,14 @@ async def run_once(engine: AsyncEngine, forecast: list[Hour], now: datetime) -> 
     counts = {"created": 0, "worse": 0, "cancelled": 0, "past": 0}
     async with engine.connect() as c:
         late_from = late_frost_from(await safe_phase_starts(c, today), today.year)
-    events = alerts.detect(forecast, now, late_from)
+        season = date(today.year if today.month >= 8 else today.year - 1, 8, 1)  # the winter half-year
+        frost_seen = (await c.execute(select(weather_alerts.c.id).where(
+            weather_alerts.c.family == "frost", weather_alerts.c.day >= season, weather_alerts.c.day < today
+        ))).first() is not None  # fmt: skip
+        tubers_done = (await c.execute(select(tasks.c.id).where(
+            tasks.c.alert_action == "knollen", tasks.c.created_at >= datetime.combine(season, datetime.min.time(), UTC)
+        ))).first() is not None  # fmt: skip
+    events = alerts.detect(forecast, now, late_from, first_frost=not frost_seen)
     days, nights = alerts.daily(forecast, now), alerts.daily(forecast, now, night=True)
     async with engine.begin() as c:
         push_on = (await _settings(c)).notifications.weather_push
@@ -217,7 +235,7 @@ async def run_once(engine: AsyncEngine, forecast: list[Hour], now: datetime) -> 
         need: list[str] = []
         seen: set[str] = set()
         for e in events:
-            acts = alerts.actions(e.kind, garden)
+            acts = alerts.actions(e.kind, garden, e.value, e.day, tubers_done)
             fam = alerts.family(e.kind)
             row = (
                 await c.execute(
@@ -235,7 +253,7 @@ async def run_once(engine: AsyncEngine, forecast: list[Hour], now: datetime) -> 
                 else:  # back after an all-clear
                     await c.execute(update(weather_alerts).where(weather_alerts.c.id == aid).values(**values))
                 need += await _sync_tasks(c, aid, e, acts, today, restart=row is not None)
-                if await _push(c, push_on, *_push_text(e, acts, again=False)):
+                if acts and await _push(c, push_on, *_push_text(e, acts, again=False)):  # nothing to do: no push
                     await c.execute(
                         update(weather_alerts).where(weather_alerts.c.id == aid).values(pushed_value=e.value)
                     )
@@ -245,7 +263,7 @@ async def run_once(engine: AsyncEngine, forecast: list[Hour], now: datetime) -> 
                 announced = row.pushed_value if row.pushed_value is not None else row.value
                 await c.execute(update(weather_alerts).where(weather_alerts.c.id == aid).values(**values))
                 need += await _sync_tasks(c, aid, e, acts, today, restart=False)
-                if alerts.worse(e.kind, e.value, announced):
+                if alerts.worse(e.kind, e.value, announced) and acts:
                     if await _push(c, push_on, *_push_text(e, acts, again=True)):
                         await c.execute(
                             update(weather_alerts).where(weather_alerts.c.id == aid).values(pushed_value=e.value)
@@ -288,6 +306,21 @@ async def active_alerts(c: AsyncConnection, today: date) -> list[dict[str, Any]]
          "text": alerts.fmt(r.kind, r.value), "tasks": r.tasks}
         for r in rows
     ]  # fmt: skip
+
+
+ALERTS_KEEP = timedelta(days=400)
+
+
+async def sweep_old_alerts(engine: AsyncEngine, today: date) -> int:
+    """Ended alerts older than ALERTS_KEEP go, with their retired tasks and to-dos (ticket 032)."""
+    async with engine.begin() as c:
+        old = select(weather_alerts.c.id).where(
+            weather_alerts.c.status.in_(("past", "cancelled")), weather_alerts.c.day < today - ALERTS_KEEP
+        )
+        task_ids = select(tasks.c.id).where(tasks.c.alert_id.in_(old))
+        await c.execute(delete(todos).where(todos.c.task_id.in_(task_ids)))
+        await c.execute(delete(tasks).where(tasks.c.alert_id.in_(old)))
+        return int((await c.execute(delete(weather_alerts).where(weather_alerts.c.id.in_(old)))).rowcount or 0)
 
 
 SENSORS_SILENT = timedelta(hours=6)  # no Home Assistant value this long: the feed is broken, not a hiccup
@@ -336,6 +369,7 @@ async def main() -> None:
     if db is None:
         log.warning("no GP_INFLUX_TOKEN: weather alerts disabled")
     log.info("wetterwacht started")
+    swept: date | None = None
     while True:
         alive = db is None
         if db is not None:
@@ -347,6 +381,12 @@ async def main() -> None:
                 counts = await run_once(engine, fc, now)
                 if await check_sensor_feed(engine, db, now):
                     log.warning("garden sensors silent: pushed")
+                if swept != now.date():  # once a day is plenty
+                    try:
+                        await sweep_old_alerts(engine, now.date())
+                        swept = now.date()
+                    except Exception as e:
+                        log.warning("alert sweep failed: %s", type(e).__name__)
                 if any(counts.values()):
                     log.info("alerts: %s", counts)
                 alive = True
@@ -379,7 +419,7 @@ def sim(name: str | None) -> int:
         for e in events:
             when = f"{alerts.fmt(e.kind, e.value)} {_when(e)}, fällig {alerts.due(e, now.date())}"
             print(f"     {alerts.LABELS[e.kind]} {when}")
-            for a in alerts.actions(e.kind, garden):
+            for a in alerts.actions(e.kind, garden, e.value, e.day):
                 k = len(a.plant_ids)
                 print(f"       - {a.title}" + (f" ({k} Pflanze{'n' if k > 1 else ''})" if k else ""))
     return 0 if ok else 1

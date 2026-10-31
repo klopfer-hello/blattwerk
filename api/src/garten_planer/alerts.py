@@ -8,7 +8,9 @@ Events within the next 48 h, at most one per kind and local day:
   without data) to the end of May: air ≤ 0 °C or ground ≤ -1 °C
 - heat: air ≥ 32 °C; storm: gusts ≥ 75 km/h
 An active alert only ends when the forecast is clearly better (hysteresis, so a
-value near the threshold does not flap). Actions never include watering (F-CP-6)."""
+value near the threshold does not flap). Actions never include watering (F-CP-6).
+Who is affected follows the plants' hardiness (F-WX-5): a pot freezes about
+CONTAINER_OFFSET °C earlier than the ground; unknown hardiness counts as at risk."""
 
 from collections import defaultdict
 from collections.abc import Callable
@@ -62,6 +64,7 @@ class PlantInfo:
     growth: str
     standort_type: str
     latin: str
+    hardiness: float | None = None  # °C planted out; unknown -> treated as at risk where it matters
 
 
 @dataclass(frozen=True)
@@ -102,7 +105,7 @@ def _late_frost_season(d: date, late_from: date | None = None) -> bool:
     return start <= d <= date(d.year, 5, 31)
 
 
-def _frost(day: date, s: Day, late_from: date | None) -> tuple[str, float] | None:
+def _frost(day: date, s: Day, late_from: date | None, first_frost: bool = False) -> tuple[str, float] | None:
     air, ground = s.air_min, s.ground_min
     if air is not None and air <= STRONG_FROST:
         return "strong_frost", air
@@ -110,7 +113,8 @@ def _frost(day: date, s: Day, late_from: date | None) -> tuple[str, float] | Non
         if (air is not None and air <= LATE_FROST_AIR) or (ground is not None and ground <= LATE_FROST_GROUND):
             return "late_frost", min(v for v in (air, ground) if v is not None)
         return None
-    if day.month not in FROST_EXPECTED and air is not None and air <= FROST:
+    expected = day.month in FROST_EXPECTED and not first_frost  # the season's first frost is always news
+    if not expected and air is not None and air <= FROST:
         return "frost", air
     return None
 
@@ -119,11 +123,13 @@ def _first(s: Day, hit: Callable[[Hour], bool]) -> datetime:
     return next((h.time for h in sorted(s.hours, key=lambda h: h.time) if hit(h)), s.hours[0].time)
 
 
-def detect(hours: list[Hour], now: datetime, late_from: date | None = None) -> list[Event]:
-    """`late_from`: start of Vollfrühling this year (apple blossom, M7); 15 April without it."""
+def detect(hours: list[Hour], now: datetime, late_from: date | None = None, first_frost: bool = False) -> list[Event]:
+    """`late_from`: start of Vollfrühling this year (apple blossom, M7); 15 April without it.
+    `first_frost`: no frost alert yet since August - then a -2 °C night from November to March
+    is reported too (the moment to bring the pots in); afterwards only strong frost."""
     events = []
     for day, s in sorted(daily(hours, now, night=True).items()):
-        if found := _frost(day, s, late_from):
+        if found := _frost(day, s, late_from, first_frost):
             kind, value = found
             limit = {"strong_frost": STRONG_FROST, "frost": FROST, "late_frost": LATE_FROST_AIR}[kind]
 
@@ -160,7 +166,7 @@ def all_clear(kind: str, day: date, s: Day | None, now: datetime, late_from: dat
     start, end = window(kind, day)
     if s is None or now >= start or end > now + LEAD:
         return False
-    if kind in FROST_KINDS:  # the family clears by the rule of the season, not of the last kind
+    if kind in FROST_KINDS and kind != "frost":  # the family clears by the season's rule, not the last kind
         kind = (
             "late_frost"
             if _late_frost_season(day, late_from)
@@ -168,7 +174,7 @@ def all_clear(kind: str, day: date, s: Day | None, now: datetime, late_from: dat
             if day.month in FROST_EXPECTED
             else "frost"
         )
-    return cleared(kind, s)
+    return cleared(kind, s)  # (a first-frost alert in winter clears like any frost: kind "frost")
 
 
 def cleared(kind: str, s: Day | None) -> bool:
@@ -213,11 +219,38 @@ def _names(plants: list[PlantInfo]) -> str:
     return ", ".join(p.title for p in plants)
 
 
-def actions(kind: str, plants: list[PlantInfo]) -> list[Action]:
-    kuebel = [p for p in plants if p.in_container]
-    house = [p for p in plants if not p.in_container and p.standort_type == "gewaechshaus"]
-    tender = [p for p in plants if not p.in_container and p.standort_type != "gewaechshaus"
-              and p.growth in ("einjaehrig", "gemuese")]  # fmt: skip
+CONTAINER_OFFSET = 10.0  # roots in a pot freeze long before roots in the ground
+MARGIN = 1.0  # forecasts are not exact to the degree
+
+
+def _at_risk(p: PlantInfo, value: float | None, unknown: bool) -> bool:
+    if value is None or p.hardiness is None:
+        return unknown
+    return value <= p.hardiness + (CONTAINER_OFFSET if p.in_container else 0.0) + MARGIN
+
+
+# Fresh shoots and blossoms freeze at about -1 to -2 °C in May, whatever the winter hardiness.
+LATE_FROST_SHOOTS = {"Acer palmatum", "Hydrangea macrophylla", "Vitis vinifera", "Buddleja davidii", "Juglans regia",
+                     "Ficus carica"}  # fmt: skip
+BLOSSOM_GENERA = ("Fragaria", "Ribes", "Vaccinium", "Rubus")  # berries next to FRUIT_SPECIES
+TUBER_LIMIT = -5.0  # tubers hardier than this stay in the ground
+
+
+def actions(
+    kind: str, plants: list[PlantInfo], value: float | None = None, day: date | None = None, tubers_done: bool = False
+) -> list[Action]:
+    """`value`: the event's forecast extreme (None: everyone who could be at risk).
+    `tubers_done`: the season's "Knollen ausgraben" was already announced."""
+    autumn = day is not None and day.month >= 8
+    tubers = [p for p in plants if kind in FROST_KINDS and autumn and not tubers_done and p.growth == "knolle"
+              and not p.in_container and p.standort_type != "gewaechshaus"
+              and (p.hardiness is None or p.hardiness > TUBER_LIMIT)]  # fmt: skip
+    rest = [p for p in plants if p not in tubers]
+    kuebel = [p for p in rest if p.in_container and _at_risk(p, value, unknown=True)]
+    house = [p for p in rest if not p.in_container and p.standort_type == "gewaechshaus"
+             and _at_risk(p, value, unknown=True)]  # fmt: skip
+    tender = [p for p in rest if not p.in_container and p.standort_type != "gewaechshaus"
+              and _at_risk(p, value, unknown=p.growth in ("einjaehrig", "gemuese"))]  # fmt: skip
     out: list[Action] = []
 
     def add(key: str, title: str, text: str, group: list[PlantInfo]) -> None:
@@ -235,16 +268,23 @@ def actions(kind: str, plants: list[PlantInfo]) -> list[Action]:
         if tender:
             add("empfindlich", "Empfindliche Pflanzen schützen",
                 "Mit Vlies abdecken oder reife Früchte vorher ernten.", tender)  # fmt: skip
+        if tubers:
+            add("knollen", "Knollen ausgraben",
+                "Nach dem ersten Frost das Laub abschneiden, Knollen ausgraben, abtrocknen lassen und kühl, "
+                "frostfrei und dunkel lagern.", tubers)  # fmt: skip
         if kind == "late_frost":
-            bloom = [p for p in plants if p.latin in FRUIT_SPECIES and not p.in_container]
+            bloom = [p for p in plants if not p.in_container and (p.latin in FRUIT_SPECIES
+                     or p.latin.startswith(BLOSSOM_GENERA) or p.latin in LATE_FROST_SHOOTS)]  # fmt: skip
             if bloom:
-                add("bluete", "Obstblüte vor Spätfrost schützen",
-                    "Kleine Bäume und Sträucher abends mit Vlies abdecken (nicht auf die Blüten drücken), "
-                    "morgens wieder abnehmen.", bloom)  # fmt: skip
+                add("bluete", "Blüten und junge Triebe vor Spätfrost schützen",
+                    "Kleine Bäume, Beerensträucher und frostempfindliche Austriebe abends mit Vlies abdecken "
+                    "(nicht auf die Blüten drücken), morgens wieder abnehmen.", bloom)  # fmt: skip
         if kind == "strong_frost":
             add("winterschutz", "Winterschutz prüfen",
                 "Rosen anhäufeln, empfindliche Gehölze mit Vlies oder Reisig schützen.", [])  # fmt: skip
     elif kind == "heat":
+        kuebel = [p for p in plants if p.in_container]
+        house = [p for p in plants if not p.in_container and p.standort_type == "gewaechshaus"]
         if kuebel:
             add("kuebel", "Kübelpflanzen in den Schatten stellen",
                 "Über Mittag in den Schatten rücken; dunkle Töpfe abdecken.", kuebel)  # fmt: skip
@@ -252,6 +292,7 @@ def actions(kind: str, plants: list[PlantInfo]) -> list[Action]:
             add("gewaechshaus", "Gewächshaus lüften und schattieren",
                 "Fenster und Türen öffnen, Schattiernetz anbringen.", house)  # fmt: skip
     elif kind == "storm":
+        kuebel = [p for p in plants if p.in_container]
         if kuebel:
             add("kuebel", "Kübel sichern", "Hohe Kübel windgeschützt stellen oder hinlegen.", kuebel)
         add("sichern", "Garten sturmfest machen",

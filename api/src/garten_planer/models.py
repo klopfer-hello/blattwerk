@@ -183,6 +183,9 @@ class SpeciesTraits(Strict):
     german: Annotated[list[Name60], Field(min_length=1, max_length=5)]
     growth: Growth
     woody: bool
+    hardiness_c: Annotated[int | None, Field(ge=-45, le=15)] = (
+        None  # °C planted out; empty = unknown (alerts stay conservative)
+    )
 
 
 class CultivarIn(Strict):

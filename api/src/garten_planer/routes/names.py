@@ -109,8 +109,8 @@ async def pick_name(jid: str, body: Pick, request: Request) -> dict[str, Any]:
             await c.execute(
                 pg_insert(species)
                 .values(id=sid, latin=s.latin, family=s.family, german=s.german, synonyms=[],
-                        growth=growth or s.growth, woody=s.woody if woody is None else woody, feeder=None,
-                        source="user")
+                        growth=growth or s.growth, woody=s.woody if woody is None else woody,
+                        hardiness_c=s.winterhaerte_c, feeder=None, source="user")
                 .on_conflict_do_nothing()
             )  # fmt: skip
         row = (await c.execute(select(species.c.latin, species.c.german).where(species.c.id == sid))).one()

@@ -216,18 +216,21 @@ function SpeciesTraitsBox({ id, onSaved }: { id: string; onSaved: () => void }) 
   const [names, setNames] = useState('');
   const [growth, setGrowth] = useState('strauch');
   const [woody, setWoody] = useState(false);
+  const [hardy, setHardy] = useState('');
   const [msg, setMsg] = useState('');
   useEffect(() => { api.species(id).then(setSp, () => undefined); }, [id]);
   if (!sp || sp.source !== 'user') return null;
-  function start() { setNames(sp!.german.join(', ')); setGrowth(sp!.growth); setWoody(sp!.woody); setMsg(''); setOpen(true); }
+  function start() { setNames(sp!.german.join(', ')); setGrowth(sp!.growth); setWoody(sp!.woody); setHardy(sp!.hardiness_c === null ? '' : String(sp!.hardiness_c)); setMsg(''); setOpen(true); }
   async function save() {
     const german = names.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 5);
     if (!german.length) { setMsg('Mindestens ein deutscher Name.'); return; }
-    try { setSp(await api.updateSpecies(id, { german, growth, woody })); setOpen(false); onSaved(); } catch { setMsg('Konnte nicht gespeichert werden.'); }
+    const h = hardy.trim() === '' ? null : Number(hardy.trim().replace('\u2212', '-'));  // the app shows "−20" 
+    if (h !== null && (!Number.isInteger(h) || h < -45 || h > 15)) { setMsg('Winterhärte: ganze Zahl von −45 bis 15 °C, oder leer.'); return; }
+    try { setSp(await api.updateSpecies(id, { german, growth, woody, hardiness_c: h })); setOpen(false); onSaved(); } catch { setMsg('Konnte nicht gespeichert werden.'); }
   }
   return (
     <div className="box stack" style={{ gap: 8 }}>
-      <span className="small">Diese Art hat die KI angelegt: {GROWTH[sp.growth as keyof typeof GROWTH] ?? sp.growth}, {sp.woody ? 'Gehölz' : 'kein Gehölz'}. Bitte prüfen – davon hängen Schnittregeln (§ 39) und Frostwarnungen ab.</span>
+      <span className="small">Diese Art hat die KI angelegt: {GROWTH[sp.growth as keyof typeof GROWTH] ?? sp.growth}, {sp.woody ? 'Gehölz' : 'kein Gehölz'}, winterhart bis {sp.hardiness_c === null ? '? (unbekannt)' : `${sp.hardiness_c} °C`}. Bitte prüfen – davon hängen Schnittregeln (§ 39) und Frostwarnungen ab.</span>
       {!open && <button className="btn" onClick={start}>Art-Angaben korrigieren</button>}
       {open && (
         <>
@@ -238,6 +241,7 @@ function SpeciesTraitsBox({ id, onSaved }: { id: string; onSaved: () => void }) 
               {Object.entries(GROWTH).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
             </select>
           </div>
+          <div className="field"><label htmlFor="sp-hardy">Winterhart bis (°C, ausgepflanzt)</label><input id="sp-hardy" className="input" inputMode="text" placeholder="z. B. -20, leer = unbekannt" value={hardy} onChange={(e) => setHardy(e.target.value)} /></div>
           <div className="setrow" style={{ borderBottom: 0 }}>
             <span id="sp-woody">Gehölz (verholzt: Baum, Strauch, Rose …)</span>
             <button className="switch" role="switch" aria-checked={woody} aria-labelledby="sp-woody" onClick={() => setWoody(!woody)}><span /></button>

@@ -68,6 +68,7 @@ species = Table(
     Column("synonyms", ARRAY(Text), nullable=False),
     Column("growth", Text, nullable=False),
     Column("woody", Boolean, nullable=False),
+    Column("hardiness_c", SmallInteger),  # lowest °C an established plant survives in the ground (F-WX-5)
     Column("feeder", Text),
     Column("source", Text, nullable=False),
     CheckConstraint(_in("growth", GROWTH), name="growth"),

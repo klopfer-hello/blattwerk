@@ -172,6 +172,7 @@ export function Alert() {
       <h1 className="title-s">Wetterwarnungen</h1>
       {!w && <p className="muted">Lädt …</p>}
       {w && w.alerts.length === 0 && <p className="box">Gerade keine Warnung. Frost, Spätfrost, Hitze und Sturm werden 24–48 Stunden vorher gemeldet.</p>}
+      <p className="small muted">Frost ab −2 °C meldet die App von April bis Oktober und den ersten Frost jedes Herbstes (das Signal für die Kübel); danach ist Frost bis März normal und wird erst ab −10 °C gemeldet. Ab der Apfelblüte der Region bis Ende Mai gilt Spätfrost schon ab 0 °C (am Boden −1 °C). Eine Frostnacht zählt zum Tag ihres Morgens. Welche Pflanzen betroffen sind, richtet sich nach ihrer Winterhärte; Töpfe frieren etwa 10 °C früher durch.</p>
       {w?.alerts.map((a) => (
         <div key={a.kind + a.day} className="box stack" style={{ gap: 4, borderLeft: `6px solid ${ICE.has(a.kind) ? 'var(--frost)' : 'var(--urgent)'}` }}>
           <strong style={{ fontSize: 18 }}>{a.label}: {a.text}</strong>
