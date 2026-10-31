@@ -43,8 +43,10 @@ APFEL = "fruit/recent/PH_Sofortmelder_Obst_Apfel_akt.txt"
 PHASES = (
     Phase("vorfruehling", "Vorfrühling", "Hasel blüht", ((113, 5),), *_wild("Hasel")),
     Phase("erstfruehling", "Erstfrühling", "Forsythie blüht", ((109, 5),), *_wild("Forsythie")),
-    Phase("vollfruehling", "Vollfrühling", "Apfel blüht", ((310, 5),), APFEL,
-          "fruit/historical/PH_Jahresmelder_Obst_Apfel_1"),
+    # from 1991 the annual reports record the apple blossom only for the early variety (311), which
+    # is also the DWD clock's indicator; the Sofortmelder use plain "Apfel" (310)
+    Phase("vollfruehling", "Vollfrühling", "Apfel blüht", ((310, 5), (311, 5)), APFEL,
+          "fruit/historical/PH_Jahresmelder_Obst_Apfel_fruehe_Reife_"),
     Phase("fruehsommer", "Frühsommer", "Holunder blüht", ((129, 5),), *_wild("Schwarzer_Holunder")),
     Phase("hochsommer", "Hochsommer", "Sommer-Linde blüht", ((130, 5),), *_wild("Sommer-Linde")),
     Phase("spaetsommer", "Spätsommer", "Frühäpfel sind pflückreif", ((310, 29), (311, 29)), APFEL,

@@ -22,6 +22,7 @@ from garten_planer.schema import kv, pheno_events, pheno_normals
 
 ARCHIVE = "https://archive-api.open-meteo.com/v1/archive"
 BACKOFF = timedelta(days=3)
+NORMALS_VERSION = 2  # bump when the phase/file mapping changes: normals are recomputed once
 log = logging.getLogger("garten_planer.pheno")
 MAX_SMALL = 10_000_000
 
@@ -83,7 +84,7 @@ async def update_current(engine: AsyncEngine, lat: float, lon: float, today: dat
 
 
 def _fingerprint(lat: float, lon: float) -> str:
-    return f"{lat:.1f},{lon:.1f}"  # about 10 km: the region does not change for less
+    return f"v{NORMALS_VERSION}:{lat:.1f},{lon:.1f}"  # about 10 km: the region does not change for less
 
 
 async def _job(engine: AsyncEngine) -> dict[str, Any]:

@@ -53,6 +53,11 @@ def test_spaetsommer_uses_early_apple_in_both_files() -> None:
     assert pheno.normals(rows, {"1"})["spaetsommer"] == (227, 1)
 
 
+def test_apple_blossom_normal_comes_from_the_early_variety() -> None:
+    lines = [HEAD, report(1, 2000, 311, 5, "2000-04-25"), report(1, 1985, 310, 5, "1985-05-05")]
+    assert pheno.normals(pheno.parse_reports("\n".join(lines)), {"1"})["vollfruehling"] == (116, 1)
+
+
 def test_normals_are_the_median_day_1991_to_2020() -> None:
     lines = [HEAD] + [report(1, y, 113, 5, f"{y}-02-{10 + (y % 5)}") for y in range(1985, 2026)]
     doy, n = pheno.normals(pheno.parse_reports("\n".join(lines)), {"1"})["vorfruehling"]
