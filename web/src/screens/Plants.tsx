@@ -4,7 +4,7 @@
 // plants (links from the still-demo Heute/Kalender) render as DemoPlantDetail.
 import { useEffect, useRef, useState } from 'react';
 import {
-  ApiError, FORMS, STANDORT_TYPES, api, type Candidate, type Form, type Light, type Plant, type PlantIn, type Species,
+  ApiError, FORMS, STANDORT_TYPES, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
   type PlanState, type Standort, type Task,
 } from '../api';
 import { MONTHS, plantById, standortById } from '../mock/data';
@@ -247,6 +247,12 @@ export function PlantForm({ id }: { id?: string }) {
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
   const seq = useRef(0);
+  const [ai, setAi] = useState<NameJob | null>(null);  // AI lookup for the current query (F-AI-3)
+  const [aiError, setAiError] = useState<string | null>(null);
+  const [aiAsking, setAiAsking] = useState(false);
+  const typed = query.trim();
+  const typedRef = useRef(typed);  // the text now, for answers that arrive later
+  typedRef.current = typed;
 
   useEffect(() => { api.standorte().then(setStandorte, (e) => setError(fail(e))); }, []);
   useEffect(() => {
@@ -263,12 +269,55 @@ export function PlantForm({ id }: { id?: string }) {
     return () => { current = false; };
   }, [v.species_id]);
   useEffect(() => {   // debounced suggestions; only the newest answer counts
-    const q = query.trim();
+    const q = typed;
+    setAi(null); setAiError(null);  // a new text makes an earlier AI answer stale
     if (!q) { setCands([]); return; }
     const n = ++seq.current;
     const t = window.setTimeout(() => api.resolve(q).then((r) => { if (n === seq.current) setCands(r.candidates); }, () => undefined), 250);
     return () => window.clearTimeout(t);
-  }, [query]);
+  }, [typed]);
+
+  useEffect(() => {   // poll the AI lookup until it is finished; a few network errors are retried
+    if (!ai || ai.status === 'done' || ai.status === 'failed') return;
+    let current = true;
+    let timer = 0;
+    let tries = 0;
+    let errors = 0;
+    const poll = () => api.nameJob(ai.id).then((j) => {
+      if (!current) return;
+      errors = 0;
+      if (j.status === 'done' || j.status === 'failed') { setAi(j); return; }
+      if (++tries < 60) timer = window.setTimeout(poll, 2000);
+      else setAiError('Die KI braucht gerade länger. Bitte später nochmal versuchen.');
+    }, () => {
+      if (!current) return;
+      if (++errors <= 3) timer = window.setTimeout(poll, 3000 * errors);
+      else setAiError('KI-Suche nicht erreichbar. Bitte nochmal versuchen.');
+    });
+    timer = window.setTimeout(poll, 2000);
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [ai?.id]);  // eslint-disable-line react-hooks/exhaustive-deps
+
+  async function askAi() {
+    const q = typed;
+    if (aiAsking) return;
+    setAiAsking(true); setAiError(null);
+    try {
+      const { job_id } = await api.askNames(q);
+      if (typedRef.current === q) setAi({ id: job_id, query: q, status: 'queued', error: null, candidates: [] });
+    } catch (e) {
+      setAiError(fail(e).status === 429 ? 'Gerade oder heute schon sehr viele KI-Suchen. Bitte später nochmal.' : fail(e).message);
+    } finally { setAiAsking(false); }
+  }
+  async function pickAi(index: number) {
+    if (!ai) return;
+    try {
+      const r = await api.pickName(ai.id, index);
+      set({ species_id: r.species_id, cultivar_id: r.cultivar_id, form: r.form_hint ?? v.form });
+      setPicked({ label: r.german, latin: r.latin });
+      setNewSorte(''); setQuery(''); setCands([]);
+    } catch (e) { setAiError(fail(e).message); }
+  }
 
   const set = (patch: Partial<PlantIn>) => setV((x) => ({ ...x, ...patch }));
   function pick(c: Candidate) {
@@ -308,7 +357,7 @@ export function PlantForm({ id }: { id?: string }) {
       <span className="sr-only" aria-live="polite">{query.trim() ? `${cands.length} Vorschläge` : ''}</span>
       {query.trim() && (
         <div className="stack" aria-label="Vorschläge">
-          {cands.length === 0 && <span className="small muted">Keine Vorschläge. Anders schreiben, z. B. lateinisch?</span>}
+          {cands.length === 0 && <span className="small muted">Keine Vorschläge. Anders schreiben – oder die KI fragen.</span>}
           {cands.map((c) => (
             <button key={`${c.species_id}-${c.cultivar_id}`} className="option" onClick={() => pick(c)}>
               <span className="stack" style={{ gap: 3 }}>
@@ -320,6 +369,7 @@ export function PlantForm({ id }: { id?: string }) {
               <span className="radio" />
             </button>
           ))}
+          <AiSuggestions ai={ai} error={aiError} canAsk={typed.length >= 2 && !aiAsking} onAsk={askAi} onPick={pickAi} />
         </div>
       )}
 
@@ -382,7 +432,35 @@ export function PlantForm({ id }: { id?: string }) {
       <button className="btn primary" onClick={save} disabled={saving || !v.species_id || !v.standort_id}>
         {saving ? 'Speichert …' : id ? 'Speichern' : 'Pflanze anlegen'}
       </button>
-      {!id && <span className="tiny" style={{ textAlign: 'center' }}>Den Pflegeplan erstellt später die KI (M5).</span>}
+      {!id && <span className="tiny" style={{ textAlign: 'center' }}>Den Pflegeplan erstellst du danach auf der Seite der Pflanze.</span>}
+    </div>
+  );
+}
+
+function AiSuggestions({ ai, error, canAsk, onAsk, onPick }: {
+  ai: NameJob | null; error: string | null; canAsk: boolean; onAsk: () => void; onPick: (index: number) => void;
+}) {
+  const busy = ai?.status === 'queued' || ai?.status === 'running';
+  const label = (c: AiCandidate) => `${c.german[0]}${c.cultivar ? ` ‘${c.cultivar}’` : ''}`;
+  return (
+    <div className="stack" style={{ gap: 8 }} aria-live="polite">
+      {!ai && canAsk && <button className="btn" onClick={onAsk}>Nicht dabei? Mit KI suchen</button>}
+      {busy && <span className="small">Die KI sucht … (etwa 10–20 Sekunden)</span>}
+      {ai?.status === 'failed' && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{ai.error}</span>}
+      {ai?.status === 'done' && ai.candidates.length === 0 && <span className="small muted">Die KI kennt diese Pflanze auch nicht. Anders schreiben?</span>}
+      {ai?.status === 'done' && ai.candidates.map((c, i) => (
+        <button key={i} className="option" onClick={() => onPick(i)}>
+          <span className="stack" style={{ gap: 3 }}>
+            <span className="row" style={{ gap: 6 }}><span className="chip" style={{ background: 'var(--legal-tint)', color: 'var(--legal-ink)' }}>KI</span><strong style={{ fontSize: 17 }}>{label(c)}</strong></span>
+            <span className="small muted" style={{ fontStyle: 'italic' }}>{c.latin}{c.family ? ` · ${c.family}` : ''}</span>
+            {c.note && <span className="small">{c.note}</span>}
+            {!c.known_species_id && <span className="small">Neue Art – wird angelegt</span>}
+            {c.form_hint && <span className="small">Form: {c.form_hint}</span>}
+          </span>
+          <span className="radio" />
+        </button>
+      ))}
+      {error && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{error}</span>}
     </div>
   );
 }

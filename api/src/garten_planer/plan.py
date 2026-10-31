@@ -15,16 +15,16 @@ import json
 import re
 import uuid
 from dataclasses import dataclass
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
-from sqlalchemy import delete, func, insert, select, update
+from sqlalchemy import delete, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from garten_planer.claude_cli import ClaudeError
 from garten_planer.models import TaskIn
-from garten_planer.schema import care_plans, plan_jobs, tasks, todos
+from garten_planer.schema import care_plans, tasks, todos
 
 PROMPT_VERSION = "plan-1"
 WATERING = re.compile(r"gie(ß|ss)|w(ä|ae)ssern|bew(ä|ae)sser|wassergabe|tr(ä|ae)nken|einschl(ä|ae)mmen", re.IGNORECASE)
@@ -32,8 +32,6 @@ WATERING = re.compile(r"gie(ß|ss)|w(ä|ae)ssern|bew(ä|ae)sser|wassergabe|tr(ä
 CUTTING = re.compile(
     r"schneid|schnitt|r(ü|ue)ckschn|stutz|auslicht|verj(ü|ue)ng|roden|rodung|f(ä|ae)ll|auf den stock", re.IGNORECASE
 )
-STALE = timedelta(minutes=15)  # a running job older than this lost its worker (CLI timeout is 5 min)
-INTERRUPTED = "Unterbrochen (Server-Neustart). Bitte nochmal versuchen."
 CATEGORIES = ["schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges"]
 
 SYSTEM = """Du bist erfahrene Gärtnerin/Gärtnermeister für Hausgärten in Deutschland und erstellst einen Pflegeplan
@@ -279,25 +277,3 @@ async def apply_plan(c: AsyncConnection, plant_id: str, plan: Plan, info: dict[s
             )
         )
     return plan_id, ids
-
-
-# ----- job bookkeeping (api and worker) ------------------------------------------------
-
-
-async def fail_stale(c: AsyncConnection, older_than: timedelta = STALE) -> None:
-    """Running jobs whose worker died (restart, deploy, OOM) end as failed, so the plant is free again."""
-    now = datetime.now(UTC)
-    await c.execute(
-        update(plan_jobs)
-        .where(plan_jobs.c.status == "running", plan_jobs.c.started_at < now - older_than)
-        .values(status="failed", error=INTERRUPTED, finished_at=now)
-    )
-
-
-async def used_today(c: AsyncConnection, tz: Any) -> int:
-    midnight = datetime.combine(datetime.now(tz).date(), datetime.min.time(), tz)
-    return int(
-        (
-            await c.execute(select(func.count()).select_from(plan_jobs).where(plan_jobs.c.started_at >= midnight))
-        ).scalar_one()
-    )

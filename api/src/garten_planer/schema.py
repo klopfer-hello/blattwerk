@@ -266,3 +266,20 @@ plan_jobs = Table(  # queue: the api adds, the worker (internet) runs Claude
         postgresql_where=text("status IN ('queued', 'running')"),
     ),
 )
+
+name_jobs = Table(  # AI name suggestions (F-AI-3): the typed name in, candidates out
+    "name_jobs",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("query", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("error", Text),
+    Column("candidates", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("model", Text),
+    Column("cost_usd", Float),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("started_at", DateTime(timezone=True)),
+    Column("finished_at", DateTime(timezone=True)),
+    CheckConstraint(_in("status", ("queued", "running", "done", "failed")), name="status"),
+    Index("ix_name_jobs_status_created_at", "status", "created_at"),
+)

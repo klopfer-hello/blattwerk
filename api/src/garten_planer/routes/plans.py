@@ -11,7 +11,7 @@ from sqlalchemy import insert, select
 from garten_planer.catalog import ready
 from garten_planer.db import Conn
 from garten_planer.errors import ApiError, not_found
-from garten_planer.plan import fail_stale, used_today
+from garten_planer.jobs import fail_stale, used_today
 from garten_planer.routes.todos import TZ
 from garten_planer.schema import care_plans, plan_jobs, plants
 
@@ -25,9 +25,9 @@ async def request_plan(pid: str, c: Conn, request: Request) -> dict[str, str]:
         raise not_found("plant")
     if plant.archived_at is not None:
         raise ApiError(409, "plant is archived")
-    if await used_today(c, TZ) >= request.app.state.config.plan_daily_limit:
+    if await used_today(c, plan_jobs, TZ) >= request.app.state.config.plan_daily_limit:
         raise ApiError(429, "daily plan limit reached")
-    await fail_stale(c)
+    await fail_stale(c, plan_jobs)
     busy = await c.execute(
         select(plan_jobs.c.id).where(plan_jobs.c.plant_id == pid, plan_jobs.c.status.in_(("queued", "running")))
     )

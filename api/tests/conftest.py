@@ -20,7 +20,8 @@ DATABASE_URL = os.environ.get(
 )
 BASE = "http://testserver"
 TABLES = (
-    "plan_jobs, push_messages, push_subs, kv, todos, tasks, care_plans, plants, standorte, cultivars, species, settings"
+    "name_jobs, plan_jobs, push_messages, push_subs, kv, todos, tasks, care_plans, plants, standorte, cultivars, "
+    "species, settings"
 )
 
 

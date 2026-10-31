@@ -21,3 +21,5 @@ class Config(BaseSettings):
     plan_model: str = "sonnet"
     plan_budget_usd: float = 0.50  # per plan, enforced by the CLI
     plan_daily_limit: int = 60  # plan runs per day for the whole garden
+    name_budget_usd: float = 0.20  # per name lookup
+    name_daily_limit: int = 100

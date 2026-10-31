@@ -98,6 +98,12 @@ export interface CarePlan {
 }
 export interface PlanJob { id: string; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; created_at: string; finished_at: string | null }
 export interface PlanState { plan: CarePlan | null; job: PlanJob | null }
+export interface AiCandidate {
+  latin: string; german: string[]; family: string | null; growth: string; woody: boolean; cultivar: string | null;
+  form_hint: Form | null; note: string; known_species_id: string | null;
+}
+export interface NameJob { id: string; query: string; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; candidates: AiCandidate[] }
+export interface Picked { species_id: string; cultivar_id: string | null; latin: string; german: string; form_hint: Form | null }
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
   note: string; done_at: string | null; legal_adjustment: string | null; notes: LegalNote[];
@@ -118,6 +124,9 @@ export const api = {
   updateStandort: (id: string, s: StandortIn) => request<Standort>('PUT', `/standorte/${enc(id)}`, s),
   deleteStandort: (id: string) => request<unknown>('DELETE', `/standorte/${enc(id)}`),
   resolve: (q: string) => request<{ candidates: Candidate[] }>('GET', `/species/resolve?q=${enc(q)}`),
+  askNames: (q: string) => request<{ job_id: string }>('POST', '/species/ai', { q }),
+  nameJob: (id: string) => request<NameJob>('GET', `/species/ai/${enc(id)}`),
+  pickName: (id: string, index: number) => request<Picked>('POST', `/species/ai/${enc(id)}/pick`, { index }),
   species: (id: string) => request<Species>('GET', `/species/${enc(id)}`),
   createCultivar: (speciesId: string, name: string) => request<{ id: string; name: string }>('POST', `/species/${enc(speciesId)}/cultivars`, { name }),
   plants: (archived = false) => request<Plant[]>('GET', `/plants${archived ? '?archived=true' : ''}`),
