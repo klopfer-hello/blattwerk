@@ -7,7 +7,7 @@ import {
   ApiError, FORMS, GROWTH, STANDORT_TYPES, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
   type HistoryItem, type PlanState, type Standort, type Task,
 } from '../api';
-import { photoUrl } from '../photos';
+import { PhotoThumbs } from '../components/Photos';
 import { MONTHS, plantById, standortById } from '../mock/data';
 import { Back, Chip, Icon, Legal, TaskChip, timingText, Waiting } from '../components/ui';
 
@@ -635,15 +635,7 @@ function PlantHistory({ plantId }: { plantId: string }) {
               <TaskChip category="pflanzenschutz" />
               <strong>Diagnose: {h.title}</strong>
               <span className="small muted">{h.confidence}{h.cause ? ` · ${h.cause}` : ''}</span>
-              {h.photos.length > 0 && (
-                <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-                  {h.photos.map((id, i) => (
-                    <a key={id} href={photoUrl(id)} target="_blank" rel="noreferrer" aria-label={`Foto ${i + 1} groß ansehen`}>
-                      <img src={photoUrl(id)} alt={`Foto ${i + 1} der Diagnose`} width={80} height={60} style={{ borderRadius: 8, objectFit: 'cover', display: 'block' }} />
-                    </a>
-                  ))}
-                </span>
-              )}
+              {h.photos.length > 0 && <PhotoThumbs ids={h.photos} width={80} label="Foto der Diagnose" />}
             </span>
           ) : (
             <span className="stack" style={{ gap: 2 }}>

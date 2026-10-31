@@ -72,7 +72,12 @@ def seed() -> dict[str, str]:
     ]  # fmt: skip
     for t in tasks:
         api("POST", "/tasks", t)
-    return {"plant": plants["apfel"]}
+    req = urllib.request.Request(f"{BASE}/api/photos", method="POST", data=noise_png(400, 300),
+                                 headers={"Content-Type": "image/png", "Origin": BASE})  # fmt: skip
+    with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 - the local smoke stack
+        pid = json.loads(r.read())["id"]
+    chat = api("POST", "/chats", {"text": "Flecken auf dem Blatt?", "photo_ids": [pid], "plant_id": plants["apfel"]})
+    return {"plant": plants["apfel"], "chat": chat["chat_id"]}  # type: ignore[index]
 
 
 def screens(ids: dict[str, str]) -> dict[str, tuple[str, str]]:
@@ -85,6 +90,7 @@ def screens(ids: dict[str, str]) -> dict[str, tuple[str, str]]:
         "einstellungen": ("#/einstellungen", "Einstellungen"), "standorte": ("#/standorte", "Standorte"),
         "warnung": ("#/warnung", "Wetterwarnungen"),
         "pflanze-krank": (f"#/fragen-pflanze/{ids['plant']}", "Pflanze krank?"),
+        "chat-foto": (f"#/fragen/{ids['chat']}", "Flecken auf dem Blatt?"),
     }  # fmt: skip
 
 
@@ -127,6 +133,18 @@ def photo(page: Page, size: str, problems: list[str]) -> None:
     page.screenshot(path=str(OUT / f"{size}-pflanze-krank-foto.png"), full_page=True)
 
 
+def large_view(page: Page, size: str, problems: list[str]) -> None:
+    """A sent photo opens large inside the app and closes again (no new window: no way back in the PWA)."""
+    page.get_by_role("button", name="Foto 1 groß ansehen").click()
+    try:
+        page.wait_for_selector("[role=dialog] img", timeout=5000)
+        page.screenshot(path=str(OUT / f"{size}-chat-foto-gross.png"))
+        page.get_by_role("button", name="Schließen").click()
+        page.wait_for_selector("[role=dialog]", state="detached", timeout=5000)
+    except Exception:
+        problems.append(f"{size}/chat-foto: large view does not open or close")
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     wait_for_api()
@@ -159,6 +177,8 @@ def main() -> None:
                 check(page, name, size, must, problems, notes)
                 if name == "pflanze-krank":
                     photo(page, size, problems)
+                if name == "chat-foto":
+                    large_view(page, size, problems)
             ctx.close()
         browser.close()
     for n in sorted(set(notes)):

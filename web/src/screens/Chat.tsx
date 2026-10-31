@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, api, type Ask, type ChatAction, type ChatFull, type ChatSummary } from '../api';
 import { Back, Icon, deDate, Waiting } from '../components/ui';
+import { PhotoThumbs } from '../components/Photos';
 import { photoUrl, uploadPhoto } from '../photos';
 
 const MAX_PHOTOS = 3;
@@ -76,18 +77,6 @@ function ActionCard({ a, onDecided }: { a: ChatAction; onDecided: () => void }) 
         </div>
       ) : <span className="muted">{a.status === 'done' ? doneText : a.kind === 'aufgabe' ? 'Nicht angelegt.' : 'Nicht gespeichert.'}</span>}
       {error && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{error}</span>}
-    </div>
-  );
-}
-
-function Photos({ ids, size = 96 }: { ids: string[]; size?: number }) {
-  return (
-    <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-      {ids.map((id, i) => (
-        <a key={id} href={photoUrl(id)} target="_blank" rel="noreferrer" aria-label={`Foto ${i + 1} groß ansehen`}>
-          <img src={photoUrl(id)} alt={`Foto ${i + 1}`} width={size} height={Math.round(size * 0.75)} style={{ borderRadius: 10, objectFit: 'cover', display: 'block' }} />
-        </a>
-      ))}
     </div>
   );
 }
@@ -240,7 +229,7 @@ export function ChatView({ id }: { id: string }) {
       {chat?.plant && <a className="chip" href={`#/pflanze/${chat.plant.id}`} style={{ alignSelf: 'flex-start', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>Zu: {chat.plant.name}</a>}
       {!chat && !error && <p className="muted"><Waiting /></p>}
       {chat?.messages.map((m) => m.role === 'user' ? (
-        <div key={m.id} className="bubble-me stack" style={{ whiteSpace: 'pre-wrap', gap: 8 }}>{m.photos.length > 0 && <Photos ids={m.photos} />}<span>{m.text}</span></div>
+        <div key={m.id} className="bubble-me stack" style={{ whiteSpace: 'pre-wrap', gap: 8 }}>{m.photos.length > 0 && <PhotoThumbs ids={m.photos} />}<span>{m.text}</span></div>
       ) : (
         <div key={m.id} className="stack" style={{ gap: 8 }}>
           <div className="bubble-ai" aria-live={m.id === pending?.id ? 'polite' : undefined}>
