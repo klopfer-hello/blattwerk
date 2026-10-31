@@ -3,7 +3,8 @@
 # generated GP_DB_PASSWORD into the host's .env (never committed, never printed).
 # Only the web container is reachable (through Traefik); database, migrations and
 # api sit on an internal network without ports and without a route out. The worker
-# additionally joins `egress`: it is the only one that can reach the push services.
+# additionally joins `egress` (push services, Claude, DWD), and so does Telegraf
+# (Home Assistant on this host, Open-Meteo). InfluxDB stays on the internal network.
 services:
   db:
     image: postgres:17.10-alpine
@@ -50,6 +51,7 @@ services:
       GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
       GP_VAPID_PUBLIC: ${GP_VAPID_PUBLIC:-}
       GP_PLAN_DAILY_LIMIT: ${GP_PLAN_DAILY_LIMIT:-60}  # the api tells the user when it is reached
+      GP_INFLUX_TOKEN: ${GP_INFLUX_TOKEN:-}
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -75,6 +77,9 @@ services:
       GP_CLAUDE_HOME: /claude
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       GP_PLAN_DAILY_LIMIT: ${GP_PLAN_DAILY_LIMIT:-60}
+      GP_INFLUX_TOKEN: ${GP_INFLUX_TOKEN:-}
+      GP_LAT: ${GP_LAT:-}   # nearest DWD MOSMIX station
+      GP_LON: ${GP_LON:-}
     read_only: true
     tmpfs: [/tmp]
     volumes:
@@ -89,6 +94,89 @@ services:
       retries: 3
     depends_on:
       migrate:
+        condition: service_completed_successfully
+
+  influxdb:   # weather time series (M6); token file created once by deploy.sh in the influx-secret volume
+    image: influxdb:3.11.8-core
+    container_name: garten-planer-influxdb
+    restart: unless-stopped
+    entrypoint: ["sh", "-c"]
+    # no Python plugin engine (the image enables it via INFLUXDB3_PLUGIN_DIR); health without token for the check
+    command: ["unset INFLUXDB3_PLUGIN_DIR; exec influxdb3 serve --node-id garten --object-store file --data-dir /var/lib/influxdb3/data --admin-token-file /secret/admin.json --disable-telemetry-upload --disable-authz health"]
+    volumes:
+      - influx:/var/lib/influxdb3
+      - influx-secret:/secret:ro
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "-o", "/dev/null", "http://127.0.0.1:8181/health"]
+      interval: 15s
+      start_period: 20s
+      retries: 5
+
+  influx-init:   # one-shot: database "garten" with 2 years retention, before Telegraf writes
+    image: ${GARTEN_PLANER_API_IMAGE:?set by scripts/deploy.sh}
+    pull_policy: never
+    container_name: garten-planer-influx-init
+    command: ["python", "-m", "garten_planer.influx", "init"]
+    restart: "no"
+    environment:
+      GP_INFLUX_TOKEN: ${GP_INFLUX_TOKEN:?set by scripts/deploy.sh}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]
+    depends_on:
+      influxdb:
+        condition: service_healthy
+
+  telegraf:   # Home Assistant every 5 min, Open-Meteo hourly -> InfluxDB (deploy/telegraf.conf)
+    image: telegraf:1.39.3-alpine
+    container_name: garten-planer-telegraf
+    profiles: [weather]   # deploy.sh enables it only when Home Assistant is configured
+    restart: unless-stopped
+    user: "100:101"   # the image's telegraf user; no root setup (setcap) needed
+    command: ["telegraf", "--config", "/etc/telegraf/telegraf.conf"]
+    environment:
+      GP_INFLUX_TOKEN: ${GP_INFLUX_TOKEN:-}
+      GP_HA_URL: ${GP_HA_URL:-}
+      GP_HA_TOKEN: ${GP_HA_TOKEN:-}
+      GP_LAT: ${GP_LAT:-}
+      GP_LON: ${GP_LON:-}
+      GP_HA_OUTDOOR: ${GP_HA_OUTDOOR:-}
+      GP_HA_GREENHOUSE: ${GP_HA_GREENHOUSE:-}
+      GP_HA_RAIN_DAY: ${GP_HA_RAIN_DAY:-}
+      GP_HA_RAIN_RATE: ${GP_HA_RAIN_RATE:-}
+      GP_HA_WIND: ${GP_HA_WIND:-}
+      GP_HA_GUST: ${GP_HA_GUST:-}
+      GP_HA_SOLAR: ${GP_HA_SOLAR:-}
+      GP_HA_SOIL_1: ${GP_HA_SOIL_1:-}
+      GP_HA_SOIL_1_LABEL: ${GP_HA_SOIL_1_LABEL:-}
+      GP_HA_SOIL_2: ${GP_HA_SOIL_2:-}
+      GP_HA_SOIL_2_LABEL: ${GP_HA_SOIL_2_LABEL:-}
+      GP_HA_SOIL_3: ${GP_HA_SOIL_3:-}
+      GP_HA_SOIL_3_LABEL: ${GP_HA_SOIL_3_LABEL:-}
+      GP_HA_SOIL_4: ${GP_HA_SOIL_4:-}
+      GP_HA_SOIL_4_LABEL: ${GP_HA_SOIL_4_LABEL:-}
+    volumes:
+      - ./telegraf.conf:/etc/telegraf/telegraf.conf:ro
+    extra_hosts: ["homeassistant-host:host-gateway"]   # Home Assistant runs on this host (GP_HA_URL uses this name)
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend, egress]
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:8080"]
+      interval: 30s
+      start_period: 30s
+      retries: 3
+    depends_on:
+      influx-init:
         condition: service_completed_successfully
 
   web:
@@ -115,11 +203,15 @@ services:
 volumes:
   db:
   claude:   # Claude Code CLI + its config; no transcripts (--no-session-persistence)
+  influx:
+  influx-secret:   # InfluxDB admin token file (uid 1500, mode 400); its token is also in .env
+    name: garten-planer-influx-secret
+    external: true   # deploy.sh creates it (token file) before compose up
 
 networks:
   backend:
     internal: true
-  egress: {}   # normal bridge with internet; only the worker joins it
+  egress: {}   # normal bridge with internet: worker and telegraf
   routing:
     name: ${TRAEFIK_NETWORK:?}
     external: true

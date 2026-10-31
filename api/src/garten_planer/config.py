@@ -6,7 +6,8 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Config(BaseSettings):
-    model_config = SettingsConfigDict(env_prefix="GP_", frozen=True)
+    # empty values count as unset: compose passes "${GP_LAT:-}" when weather is not configured
+    model_config = SettingsConfigDict(env_prefix="GP_", frozen=True, env_ignore_empty=True)
 
     database_url: SecretStr = SecretStr("postgresql+psycopg://localhost/garten_planer")
     version: str = "dev"
@@ -23,3 +24,8 @@ class Config(BaseSettings):
     plan_daily_limit: int = 60  # plan runs per day for the whole garden
     name_budget_usd: float = 0.20  # per name lookup
     name_daily_limit: int = 100
+    # Weather (M6). Coordinates and HA entities live only in the host's .env.
+    influx_url: str = "http://influxdb:8181"
+    influx_token: SecretStr = SecretStr("")
+    lat: float | None = None
+    lon: float | None = None

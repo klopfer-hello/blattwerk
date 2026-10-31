@@ -15,7 +15,8 @@ from garten_planer.config import Config
 from garten_planer.db import make_engine
 from garten_planer.errors import ApiError
 from garten_planer.guard import WriteGuard
-from garten_planer.routes import health, names, plans, plants, push, settings, species, standorte, todos
+from garten_planer.influx import from_config
+from garten_planer.routes import health, names, plans, plants, push, settings, species, standorte, todos, weather
 
 log = logging.getLogger("garten_planer")
 
@@ -55,6 +56,7 @@ def create_app(config: Config | None = None) -> FastAPI:
         openapi_url="/api/openapi.json",
     )
     app.state.config = cfg
+    app.state.influx = from_config(cfg)
     app.add_middleware(WriteGuard)
 
     @app.exception_handler(RequestValidationError)
@@ -73,6 +75,6 @@ def create_app(config: Config | None = None) -> FastAPI:
             body["fields"] = exc.fields
         return JSONResponse(body, status_code=exc.status)
 
-    for module in (health, settings, standorte, names, species, plants, todos, push, plans):
+    for module in (health, settings, standorte, names, species, plants, todos, push, plans, weather):
         app.include_router(module.router, prefix="/api")
     return app

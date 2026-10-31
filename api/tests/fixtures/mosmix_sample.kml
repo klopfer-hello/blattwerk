@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="ISO-8859-1" standalone="yes"?>
+<!-- Quelle: Deutscher Wetterdienst (MOSMIX_L), gekuerzt und veraendert (Testdaten: Station umbenannt, Frostnacht eingefuegt). -->
+<kml:kml xmlns:dwd="https://opendata.dwd.de/weather/lib/pointforecast_dwd_extension_V1_0.xsd" xmlns:gx="http://www.google.com/kml/ext/2.2" xmlns:xal="urn:oasis:names:tc:ciq:xsdschema:xAL:2.0" xmlns:kml="http://www.opengis.net/kml/2.2" xmlns:atom="http://www.w3.org/2005/Atom">
+    <kml:Document>
+        <kml:ExtendedData>
+            <dwd:ProductDefinition>
+                <dwd:Issuer>Deutscher Wetterdienst</dwd:Issuer>
+                <dwd:ProductID>MOSMIX</dwd:ProductID>
+                <dwd:GeneratingProcess>DWD MOSMIX hourly, Version 1.0</dwd:GeneratingProcess>
+                <dwd:IssueTime>2026-10-31T15:00:00.000Z</dwd:IssueTime>
+                <dwd:ReferencedModel>
+                    <dwd:Model dwd:name="ICON" dwd:referenceTime="2026-10-31T12:00:00Z"/>
+                    <dwd:Model dwd:name="ECMWF/IFS" dwd:referenceTime="2026-10-31T00:00:00Z"/>
+                </dwd:ReferencedModel>
+                <dwd:ForecastTimeSteps>
+<dwd:TimeStep>2026-10-31T16:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-10-31T17:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-10-31T18:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-10-31T19:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-10-31T20:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-10-31T21:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-10-31T22:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-10-31T23:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T00:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T01:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T02:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T03:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T04:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T05:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T06:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T07:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T08:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T09:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T10:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T11:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T12:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T13:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T14:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T15:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T16:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T17:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T18:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T19:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T20:00:00.000Z</dwd:TimeStep>
+<dwd:TimeStep>2026-11-01T21:00:00.000Z</dwd:TimeStep>
+</dwd:ForecastTimeSteps>
+</dwd:ProductDefinition>
+</kml:ExtendedData>
+<kml:Placemark>
+            <kml:name>10147</kml:name>
+            <kml:description>HAMBURG-FUHLSBUETTEL</kml:description>
+            <kml:ExtendedData>
+<dwd:Forecast dwd:elementName="TTT"><dwd:value>281.75 280.95 280.15 279.65 278.75 278.95 278.25 278.15 277.45 277.15 268.15 268.15 268.15 268.15 268.15 277.35 278.45 279.85 280.95 281.65 281.95 282.25 282.15 281.45 280.25 279.15 278.05 277.15 276.55 275.95</dwd:value></dwd:Forecast>
+<dwd:Forecast dwd:elementName="TN"><dwd:value>- - 278.45 - - - - - - - - - - - 275.75 - - - - - - - - - - - 276.25 - - -</dwd:value></dwd:Forecast>
+<dwd:Forecast dwd:elementName="T5cm"><dwd:value>280.65 279.65 278.85 278.15 277.45 277.25 276.85 276.35 276.05 276.15 275.55 275.35 275.35 275.45 276.25 277.45 279.05 280.95 282.55 283.35 283.75 283.95 283.25 281.65 279.65 277.65 276.45 275.35 274.65 274.55</dwd:value></dwd:Forecast>
+<dwd:Forecast dwd:elementName="FX1"><dwd:value>3.60 3.60 3.09 2.57 2.57 2.57 2.57 3.09 2.57 3.09 3.60 3.60 3.09 3.09 3.60 4.12 4.63 5.66 5.66 6.17 6.17 6.17 6.17 5.66 4.63 3.60 3.09 3.09 2.57 2.57</dwd:value></dwd:Forecast>
+<dwd:Forecast dwd:elementName="RR1c"><dwd:value>0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00 0.00</dwd:value></dwd:Forecast>
+</kml:ExtendedData>
+<kml:Point><kml:coordinates>9.99,53.63,14.0</kml:coordinates></kml:Point>
+</kml:Placemark>
+</kml:Document>
+</kml:kml>

@@ -21,10 +21,11 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-from garten_planer import names
+from garten_planer import mosmix, names
 from garten_planer.claude_cli import ClaudeError, binary_path, config_from_env, ensure_cli, run_json
 from garten_planer.config import Config
 from garten_planer.digest import digest_due, digest_text
+from garten_planer.influx import from_config
 from garten_planer.jobs import NAME_QUEUED_FOR, fail_stale, used_today
 from garten_planer.models import GardenSettings, known_fields
 from garten_planer.plan import (
@@ -51,6 +52,8 @@ from garten_planer.schema import (
     todos,
 )
 
+FORECAST_S = 3600  # MOSMIX_L is issued every 6 h; hourly keeps the newest
+FORECAST_RETRY_S = 300  # influxdb still starting, DWD briefly down
 PLAN_LOOP_S = 5  # the user waits for the plan; a cheap indexed query
 LOOP_S = 30
 MAX_ATTEMPTS = 5
@@ -204,16 +207,20 @@ def make_sender(cfg: Config) -> Sender:
 
 async def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s: %(message)s")
+    logging.getLogger("httpx").setLevel(logging.WARNING)  # its INFO lines carry URLs (station id)
     cfg = Config()
     engine = create_async_engine(cfg.database_url.get_secret_value(), pool_pre_ping=True)
     sender = make_sender(cfg) if cfg.vapid_private.get_secret_value() else None
     if sender is None:  # nothing could be delivered: do not consume the to-dos either
         log.warning("no GP_VAPID_PRIVATE: push disabled")
     plans = asyncio.create_task(ai_loops(engine, cfg))  # own loops: a plan takes minutes
+    forecast = asyncio.create_task(forecast_loop(cfg))
     log.info("worker started")
     while True:
         if plans.done():  # a crash there must not go unnoticed: stop, the restart policy brings us back
             raise RuntimeError("AI loops stopped")
+        if forecast.done() and forecast.exception() is not None:
+            raise RuntimeError("forecast loop stopped")
         try:
             if sender is not None and (count := await run_digest(engine, datetime.now(TZ))):
                 log.info("digest with %d to-dos queued", count)
@@ -401,6 +408,25 @@ async def ai_loops(engine: AsyncEngine, cfg: Config) -> None:
         serve("plan", lambda: run_plan_jobs(engine, runner(cfg.plan_budget_usd), cfg.plan_daily_limit)),
         serve("name", lambda: run_name_jobs(engine, runner(cfg.name_budget_usd), cfg.name_daily_limit)),
     )
+
+
+async def forecast_loop(cfg: Config) -> None:
+    """DWD MOSMIX for the nearest station, hourly (N-16); after a failure again in a few minutes."""
+    db = from_config(cfg)
+    if db is None or cfg.lat is None or cfg.lon is None:
+        log.warning("no GP_INFLUX_TOKEN or GP_LAT/GP_LON: DWD forecast disabled")
+        return
+    stations: list[mosmix.Station] = []
+    while True:
+        try:
+            stations = stations or await mosmix.stations_near(cfg.lat, cfg.lon)
+            station, hours = await mosmix.fetch(db, stations)
+            stations = [station, *(s for s in stations if s != station)]  # keep the one that works first
+            log.info("dwd forecast: %d hours", hours)  # no station id: it says where the garden is
+            await asyncio.sleep(FORECAST_S)
+        except Exception as e:  # keep running; type only
+            log.warning("dwd forecast failed: %s", type(e).__name__)
+            await asyncio.sleep(FORECAST_RETRY_S)
 
 
 if __name__ == "__main__":

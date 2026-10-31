@@ -103,6 +103,14 @@ export interface AiCandidate {
   form_hint: Form | null; note: string; known_species_id: string | null;
 }
 export interface NameJob { id: string; query: string; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; candidates: AiCandidate[] }
+export interface Reading { value: number; at: string; stale: boolean }
+export interface WeatherDay { date: string; source: 'dwd' | 'openmeteo'; t_min: number | null; t_max: number | null; ground_min: number | null; precip: number | null; gust_max: number | null; frost: boolean }
+export interface Weather {
+  available: boolean;
+  current?: { outdoor?: Reading; greenhouse?: Reading; rain_day?: Reading; rain_rate?: Reading; wind?: Reading; gust?: Reading; solar?: Reading; soil: (Reading & { label: string })[] };
+  days?: WeatherDay[];
+  stale?: { sensors: string | null; forecast: string | null };  // null = fresh, ISO time = since then, 'unbekannt'
+}
 export interface Picked { species_id: string; cultivar_id: string | null; latin: string; german: string; form_hint: Form | null }
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
@@ -124,6 +132,7 @@ export const api = {
   updateStandort: (id: string, s: StandortIn) => request<Standort>('PUT', `/standorte/${enc(id)}`, s),
   deleteStandort: (id: string) => request<unknown>('DELETE', `/standorte/${enc(id)}`),
   resolve: (q: string) => request<{ candidates: Candidate[] }>('GET', `/species/resolve?q=${enc(q)}`),
+  weather: () => request<Weather>('GET', '/weather'),
   askNames: (q: string) => request<{ job_id: string }>('POST', '/species/ai', { q }),
   nameJob: (id: string) => request<NameJob>('GET', `/species/ai/${enc(id)}`),
   pickName: (id: string, index: number) => request<Picked>('POST', `/species/ai/${enc(id)}/pick`, { index }),

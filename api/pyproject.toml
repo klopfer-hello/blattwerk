@@ -12,10 +12,18 @@ dependencies = [
   "pywebpush>=2.0",
   "pydantic>=2.11",
   "pydantic-settings>=2.10",
+  "httpx>=0.28",
+  "defusedxml>=0.7",
 ]
 
 [dependency-groups]
-dev = ["pytest>=8.4", "httpx>=0.28", "ruff>=0.13", "mypy>=1.18"]
+dev = [
+    "pytest>=8.4",
+    "httpx>=0.28",
+    "ruff>=0.13",
+    "mypy>=1.18",
+    "types-defusedxml>=0.7.0.20260504",
+]
 
 [build-system]
 requires = ["hatchling>=1.27"]

@@ -57,6 +57,7 @@ fi
 echo "==> switching to ${tag}"
 ssh_ "mkdir -p '$DEPLOY_DIR'"
 scp -q deploy/docker-compose.yml "$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.yml.new"
+scp -q deploy/telegraf.conf "$DEPLOY_HOST:$DEPLOY_DIR/telegraf.conf.new"
 scp -q deploy/backup.sh "$DEPLOY_HOST:$DEPLOY_DIR/"
 ssh_ bash -s -- "$DEPLOY_DIR" "$tag" "$GP_HOST" "$TRAEFIK_NETWORK" <<'REMOTE'
 set -euo pipefail
@@ -67,10 +68,29 @@ setenv() {   # set KEY=value, or remove KEY when value is empty
   { grep -v "^$1=" .env || true; if [[ -n $2 ]]; then echo "$1=$2"; fi; } > .env.new
   chmod 600 .env.new && mv .env.new .env
 }
+# InfluxDB admin token, before anything is switched (a failure here leaves the running version alone).
+# Created offline into its own volume (uid 1500, mode 400), copied into .env; never leaves the host.
+influx_img=$(tr -d '\r' < docker-compose.yml.new | sed -n 's/^ *image: *\(influxdb:[^ #]*\).*$/\1/p' | head -1)
+vol=garten-planer-influx-secret   # same name as in docker-compose.yml
+docker volume create "$vol" >/dev/null   # idempotent: also brings back a pruned volume
+docker run --rm --network none --user 0 --entrypoint sh -v "$vol:/secret" "$influx_img" -c \
+  'test -s /secret/admin.json || influxdb3 create token --admin --offline --output-file /secret/admin.json >/dev/null; chown 1500:1500 /secret/admin.json && chmod 400 /secret/admin.json'
+token=$(docker run --rm --network none --user 0 --entrypoint cat -v "$vol:/secret:ro" "$influx_img" /secret/admin.json \
+  | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
+[[ -n $token ]] || { echo "could not read the InfluxDB token" >&2; exit 1; }
+[[ $(get GP_INFLUX_TOKEN) == "$token" ]] || setenv GP_INFLUX_TOKEN "$token"   # file and .env always agree
+unset token
+
 prev_web=$(get GARTEN_PLANER_WEB_IMAGE); prev_api=$(get GARTEN_PLANER_API_IMAGE)
-# Keep the compose file that belongs to the previous images: a rollback needs both.
+# Keep the files that belong to the previous images: a rollback needs them.
 if [[ -f docker-compose.yml ]]; then cp docker-compose.yml docker-compose.yml.prev; fi
 mv docker-compose.yml.new docker-compose.yml
+conf_changed=false
+if ! cmp -s telegraf.conf.new telegraf.conf 2>/dev/null; then
+  [[ -f telegraf.conf ]] && cp telegraf.conf telegraf.conf.prev
+  conf_changed=true
+fi
+mv telegraf.conf.new telegraf.conf
 [[ -z $prev_web ]] && prev_web=$(get GARTEN_PLANER_IMAGE)       # 0.1.x used one image variable
 setenv GARTEN_PLANER_IMAGE ''
 [[ -n $(get GP_DB_PASSWORD) ]] || setenv GP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
@@ -79,10 +99,12 @@ if [[ -z $(get GP_VAPID_PRIVATE) ]]; then   # web push keys: generated here, nev
   setenv GP_VAPID_PUBLIC "$(sed -n 's/^GP_VAPID_PUBLIC=//p' <<<"$keys")"
   setenv GP_VAPID_PRIVATE "$(sed -n 's/^GP_VAPID_PRIVATE=//p' <<<"$keys")"
 fi
+# Telegraf (Home Assistant + Open-Meteo) only when Home Assistant is configured: weather is optional.
+if [[ -n $(get GP_HA_URL) && -n $(get GP_HA_TOKEN) ]]; then setenv COMPOSE_PROFILES weather; else setenv COMPOSE_PROFILES ''; fi
 setenv GP_HOST "$3"; setenv TRAEFIK_NETWORK "$4"
 setenv GARTEN_PLANER_WEB_IMAGE "garten-planer-web:$tag"; setenv GARTEN_PLANER_API_IMAGE "garten-planer-api:$tag"
 
-healthy() {   # every container with a healthcheck healthy, within 90 s
+healthy() {   # the garden app's containers healthy, within 90 s (weather problems never roll back the app)
   for _ in $(seq 1 45); do
     ok=true
     for c in garten-planer-db garten-planer-api garten-planer-worker garten-planer-web; do
@@ -98,16 +120,33 @@ healthy() {   # every container with a healthcheck healthy, within 90 s
   return 1
 }
 running() { [[ $(docker inspect -f '{{.Config.Image}}' "$1" 2>/dev/null) == "$2" ]]; }
+weather_check() {   # report only
+  for c in garten-planer-influxdb garten-planer-telegraf; do
+    [[ $c == garten-planer-telegraf && -z $(get COMPOSE_PROFILES) ]] && { echo "weather: telegraf off (no GP_HA_URL/GP_HA_TOKEN)"; continue; }
+    for _ in $(seq 1 30); do
+      s=$(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing)
+      [[ $s == healthy || $s == unhealthy ]] && break
+      sleep 2
+    done
+    echo "weather: $c $s"
+  done
+}
 
-if docker compose up -d --remove-orphans >/dev/null 2>&1 && healthy \
+if out=$(docker compose up -d --remove-orphans 2>&1) && healthy \
    && running garten-planer-web "garten-planer-web:$tag" && running garten-planer-api "garten-planer-api:$tag"; then
+  if $conf_changed && [[ -n $(get COMPOSE_PROFILES) ]]; then   # bind-mounted config: compose does not notice changes
+    docker compose restart telegraf >/dev/null 2>&1 || echo "weather: telegraf restart failed" >&2
+  fi
+  weather_check
   echo "current: $tag (previous web: ${prev_web:-none}, api: ${prev_api:-none})"
   exit 0
 fi
 echo "switch FAILED" >&2
-for c in garten-planer-migrate garten-planer-api garten-planer-worker garten-planer-web; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
+grep -v -i -E 'token|password|secret' <<<"${out:-}" | tail -5 | sed 's/^/[compose] /' >&2 || true
+for c in garten-planer-migrate garten-planer-influx-init garten-planer-api garten-planer-worker garten-planer-web; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
 if [[ -n $prev_web && -n $prev_api ]]; then
   [[ -f docker-compose.yml.prev ]] && cp docker-compose.yml.prev docker-compose.yml
+  $conf_changed && [[ -f telegraf.conf.prev ]] && cp telegraf.conf.prev telegraf.conf
   setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"; setenv GARTEN_PLANER_API_IMAGE "$prev_api"
   docker compose up -d --remove-orphans >/dev/null 2>&1 || true
   echo "ROLLED BACK to $prev_web / $prev_api (with the previous compose file)" >&2

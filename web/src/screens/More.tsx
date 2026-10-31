@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api, type GardenSettings } from '../api';
+import { api, type GardenSettings, type Reading, type Weather as WeatherData } from '../api';
 import { FERTILISER } from './Settings';
-import { NIGHTS, SEASON, SEASONS, SENSORS } from '../mock/data';
+import { SEASON, SEASONS } from '../mock/data';
 import { Back, Icon } from '../components/ui';
 
 export function Chat() {
@@ -39,6 +39,93 @@ export function Chat() {
   );
 }
 
+const num = (v: number | null | undefined, unit: string, digits = 1) =>
+  v === null || v === undefined ? '–' : `${v.toLocaleString('de-DE', { maximumFractionDigits: digits })} ${unit}`;
+const ago = (iso: string) => {
+  const min = Math.round((Date.now() - new Date(iso).getTime()) / 60000);
+  return min < 2 ? 'gerade eben' : min < 120 ? `vor ${min} Min.` : `seit ${new Date(iso).toLocaleString('de-DE', { day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}`;
+};
+const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const dayName = (iso: string) => {
+  const today = new Date();
+  const tomorrow = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+  return iso === isoDay(today) ? 'Heute' : iso === isoDay(tomorrow) ? 'Morgen' : new Date(`${iso}T12:00:00`).toLocaleDateString('de-DE', { weekday: 'long' });
+};
+const since = (v: string) => (v === 'unbekannt' ? 'seit über einem Tag' : ago(v));
+
+function WeatherNow() {
+  const [w, setW] = useState<WeatherData | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [, setTick] = useState(0);  // re-render for "vor x Min."
+  useEffect(() => {   // every 5 min and when the app comes back to the front; errors keep the last answer
+    let current = true;
+    const load = () => api.weather().then((x) => { if (current) { setW(x); setFailed(false); } }, () => { if (current) setFailed(true); });
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    load();
+    const t = window.setInterval(load, 5 * 60 * 1000);
+    const m = window.setInterval(() => setTick((n) => n + 1), 60 * 1000);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { current = false; window.clearInterval(t); window.clearInterval(m); document.removeEventListener('visibilitychange', onVisible); };
+  }, []);
+  if (!w && failed) return <p className="box">Wetterdaten sind gerade nicht erreichbar. Aufgaben richten sich solange nach dem Kalender.</p>;
+  if (w && !w.available) return <p className="box">Wetterdaten sind gerade nicht verfügbar. Aufgaben richten sich solange nach dem Kalender.</p>;
+  if (!w?.current) return <p className="box">Lädt …</p>;
+  const c = w.current;
+  const tiles: [string, Reading | undefined, string, number][] = [
+    ['Draußen', c.outdoor, '°C', 1], ['Gewächshaus', c.greenhouse, '°C', 1], ['Regen heute', c.rain_day, 'mm', 1],
+    ['Wind', c.wind, 'km/h', 0], ['Böen', c.gust, 'km/h', 0], ['Sonne', c.solar, 'W/m²', 0],
+  ];
+  const newest = [c.outdoor, c.greenhouse, ...c.soil].filter(Boolean).map((r) => r!.at).sort().pop();
+  return (
+    <>
+      <section className="stack">
+        <h2 className="eyebrow">Garten jetzt · Home Assistant</h2>
+        {failed && <p className="small muted" role="status">Aktualisieren gerade nicht möglich – letzte bekannte Werte.</p>}
+        {w.stale?.sensors && <p className="box" role="status" style={{ color: 'var(--urgent)' }}>Messwerte veraltet {since(w.stale.sensors)}.</p>}
+        <div className="grid3">
+          {tiles.map(([k, r, unit, digits]) => (
+            <div key={k} className="box" style={{ padding: 10, opacity: r?.stale ? 0.55 : 1 }}>
+              <div className="tiny">{k}{r?.stale ? ' · alt' : ''}</div><strong style={{ fontSize: 18 }}>{num(r?.value, unit, digits)}</strong>
+            </div>
+          ))}
+        </div>
+        {c.soil.length > 0 && (
+          <div className="grid2" style={{ gap: 8 }}>
+            {c.soil.map((s) => (
+              <div key={s.label} className="box" style={{ padding: 10, opacity: s.stale ? 0.55 : 1 }}>
+                <div className="tiny">Bodenfeuchte {s.label}{s.stale ? ' · alt' : ''}</div><strong style={{ fontSize: 18 }}>{num(s.value, '%', 0)}</strong>
+              </div>
+            ))}
+          </div>
+        )}
+        {newest && !w.stale?.sensors && <span className="tiny">Aktualisiert {ago(newest)}</span>}
+      </section>
+      <section className="stack">
+        <h2 className="eyebrow">Vorhersage</h2>
+        {w.stale?.forecast === 'unbekannt' && !w.days?.length && <p className="box" role="status">Noch keine Vorhersage – sie kommt stündlich vom DWD und von Open-Meteo.</p>}
+        {w.stale?.forecast && (w.days?.length ?? 0) > 0 && <p className="box" role="status" style={{ color: 'var(--urgent)' }}>Vorhersage veraltet {since(w.stale.forecast)}.</p>}
+        <div className="stack" style={{ gap: 6 }}>
+          {w.days?.map((d) => (
+            <div key={d.date} className="box between" style={{ padding: '10px 12px', borderLeft: d.frost ? '6px solid var(--frost)' : undefined }}>
+              <span className="stack" style={{ gap: 2 }}>
+                <strong>{dayName(d.date)}</strong>
+                <span className="small muted">{d.frost ? 'Frost' + (d.ground_min !== null && (d.t_min ?? 1) > 0 ? ' am Boden' : '') + ' · ' : ''}Regen {num(d.precip, 'mm')} · Böen bis {num(d.gust_max, 'km/h', 0)}</span>
+              </span>
+              <span style={{ textAlign: 'right' }}>
+                <strong style={{ color: d.frost ? 'var(--frost)' : 'var(--ink)' }}>{num(d.t_min, '°', 0)}</strong>
+                <span className="muted"> / {num(d.t_max, '°', 0)}</span>
+              </span>
+            </div>
+          ))}
+        </div>
+        {w.days && w.days.length > 0 && (
+          <span className="tiny">Quellen: {[w.days.some((d) => d.source === 'dwd') && 'Deutscher Wetterdienst (MOSMIX)', w.days.some((d) => d.source === 'openmeteo') && 'Open-Meteo.com (CC BY 4.0)'].filter(Boolean).join(', ')}</span>
+        )}
+      </section>
+    </>
+  );
+}
+
 export function Weather() {
   const [s, setS] = useState<GardenSettings | null>(null);
   const [failed, setFailed] = useState(false);
@@ -55,30 +142,11 @@ export function Weather() {
     <div className="page">
       <Back href="#/mehr" label="Mehr" />
       <h1 className="title-s">Wetter &amp; Jahreszeit</h1>
-      <span className="chip" style={{ background: 'var(--legal-tint)', color: 'var(--legal-ink)' }}>Vorschau mit Beispielwerten – echte Daten mit M6/M7</span>
-      <a href="#/warnung" className="small">So sieht eine Frost-Warnung aus ›</a>
+      <WeatherNow />
+      <a href="#/warnung" className="small">So sieht eine Frost-Warnung aus (Warnungen kommen mit dem nächsten Schritt) ›</a>
 
       <section className="stack">
-        <h2 className="eyebrow">Garten jetzt · Home Assistant</h2>
-        <div className="grid3">
-          {SENSORS.map((s) => <div key={s.label} className="box" style={{ padding: 10 }}><div className="tiny">{s.label}</div><strong style={{ fontSize: 18 }}>{s.value}</strong></div>)}
-        </div>
-        <span className="tiny">Aktualisiert vor 3 Min.</span>
-      </section>
-
-      <section className="stack">
-        <h2 className="eyebrow">Nächste 7 Nächte (DWD)</h2>
-        <div className="nights">
-          {NIGHTS.map((n) => (
-            <div key={n.day} className="box" style={{ padding: '8px 0', textAlign: 'center', background: n.t < 0 ? 'var(--frost)' : 'var(--surface)', color: n.t < 0 ? '#FFFFFF' : 'var(--ink)' }}>
-              <div className="small">{n.day}</div><strong>{n.t > 0 ? '+' : n.t < 0 ? '−' : ''}{Math.abs(n.t)}°</strong>
-            </div>
-          ))}
-        </div>
-      </section>
-
-      <section className="stack">
-        <h2 className="eyebrow">Phänologischer Kalender</h2>
+        <h2 className="eyebrow">Phänologischer Kalender · Vorschau (M7)</h2>
         <div className="stack" style={{ gap: 2 }}>
           {SEASONS.map((s, i) => (
             <div key={s} className={i === SEASON.index ? 'season now' : i < SEASON.index ? 'season past' : 'season'}>
