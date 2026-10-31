@@ -161,7 +161,7 @@ async def eval_name(
         problems = []
         if not top.latin.startswith(latin):
             problems.append(f"Art {top.latin!r} statt {latin}")
-        if sorte and sorte not in fold(top.cultivar or ""):
+        if sorte and fold(sorte) not in fold(top.cultivar or ""):
             problems.append(f"Sorte {top.cultivar!r} statt {sorte}")
         if form and top.form_hint != form:
             problems.append(f"Form {top.form_hint!r} statt {form}")

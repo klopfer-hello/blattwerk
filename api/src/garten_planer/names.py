@@ -14,7 +14,7 @@ from garten_planer.claude_cli import ClaudeError
 from garten_planer.models import Form, Name60
 from garten_planer.seed import Growth
 
-PROMPT_VERSION = "names-1"
+PROMPT_VERSION = "names-2"
 MAX_CANDIDATES = 5
 FORMS: tuple[str, ...] = Form.__args__  # type: ignore[attr-defined]
 
@@ -28,8 +28,10 @@ Antworte ausschließlich im vorgegebenen JSON-Format.
 - "german": 1-3 übliche deutsche Namen. "family": Pflanzenfamilie (lateinisch).
 - "growth": baum, strauch, hecke, kletterpflanze, kuebel, staude, gras, knolle, gemuese, kraut oder einjaehrig.
   "woody": true für Gehölze (Bäume, Sträucher, Rosen, Kletterer mit Holz).
-- "cultivar": Sortenname ohne Anführungszeichen und ohne ®/™, korrekt geschrieben; null, wenn keine Sorte genannt
-  ist. Erfinde keine Sorten: ist die Sorte dir unbekannt, übernimm die Schreibweise und sag es in "note".
+- "cultivar": Sortenname ohne Anführungszeichen und ohne ®/™, in der offiziellen Schreibweise; null, wenn keine
+  Sorte genannt ist. Tippfehler in bekannten Sortennamen korrigieren (z. B. "Elstaar" -> "Elstar", "Topas" ->
+  "Topaz"); ein einzelnes "R" oder "(R)" nach dem Namen steht meist für ®. Erfinde keine Sorten: ist die Sorte dir
+  wirklich unbekannt, übernimm die Schreibweise und sag es in "note".
 - "form_hint": Säule, Halbstamm, Hochstamm, Busch, Spindel, Spalier, Strauch, Hecke, Solitär, Kübel, Kletterer,
   Horst oder Knolle, wenn die Eingabe eine Form nennt; sonst null.
 - "note": höchstens ein kurzer Satz (z. B. "Säulenkirsche, selbstfruchtbar"), sonst leer."""
