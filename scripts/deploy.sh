@@ -74,13 +74,18 @@ mv docker-compose.yml.new docker-compose.yml
 [[ -z $prev_web ]] && prev_web=$(get GARTEN_PLANER_IMAGE)       # 0.1.x used one image variable
 setenv GARTEN_PLANER_IMAGE ''
 [[ -n $(get GP_DB_PASSWORD) ]] || setenv GP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+if [[ -z $(get GP_VAPID_PRIVATE) ]]; then   # web push keys: generated here, never leave the host
+  keys=$(docker run --rm --network none --entrypoint python "garten-planer-api:$tag" -m garten_planer.push keygen)
+  setenv GP_VAPID_PUBLIC "$(sed -n 's/^GP_VAPID_PUBLIC=//p' <<<"$keys")"
+  setenv GP_VAPID_PRIVATE "$(sed -n 's/^GP_VAPID_PRIVATE=//p' <<<"$keys")"
+fi
 setenv GP_HOST "$3"; setenv TRAEFIK_NETWORK "$4"
 setenv GARTEN_PLANER_WEB_IMAGE "garten-planer-web:$tag"; setenv GARTEN_PLANER_API_IMAGE "garten-planer-api:$tag"
 
 healthy() {   # every container with a healthcheck healthy, within 90 s
   for _ in $(seq 1 45); do
     ok=true
-    for c in garten-planer-db garten-planer-api garten-planer-web; do
+    for c in garten-planer-db garten-planer-api garten-planer-worker garten-planer-web; do
       case $(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing) in
         healthy) ;;
         unhealthy) return 1 ;;
@@ -100,7 +105,7 @@ if docker compose up -d --remove-orphans >/dev/null 2>&1 && healthy \
   exit 0
 fi
 echo "switch FAILED" >&2
-for c in garten-planer-migrate garten-planer-api garten-planer-web; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
+for c in garten-planer-migrate garten-planer-api garten-planer-worker garten-planer-web; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
 if [[ -n $prev_web && -n $prev_api ]]; then
   [[ -f docker-compose.yml.prev ]] && cp docker-compose.yml.prev docker-compose.yml
   setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"; setenv GARTEN_PLANER_API_IMAGE "$prev_api"
@@ -108,7 +113,7 @@ if [[ -n $prev_web && -n $prev_api ]]; then
   echo "ROLLED BACK to $prev_web / $prev_api (with the previous compose file)" >&2
   echo "If the failed version had already migrated the DB: restore the backup taken before the deploy." >&2
 elif [[ -n $prev_web ]]; then   # first deploy with a backend: back to the web-only prototype
-  docker compose stop api db >/dev/null 2>&1 || true
+  docker compose stop api worker db >/dev/null 2>&1 || true
   [[ -f docker-compose.yml.prev ]] && cp docker-compose.yml.prev docker-compose.yml
   setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"
   docker compose up -d --no-deps web >/dev/null 2>&1 || true

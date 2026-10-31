@@ -64,7 +64,12 @@ class Legal(Strict):
 
 
 class Notifications(Strict):
+    """F-TD-6: weather alerts come at once (M6); the to-do digest at a chosen time."""
+
     weather_push: bool = True
+    digest_mode: Literal["daily", "weekly", "off"] = "daily"
+    digest_time: Annotated[str, Field(pattern=r"^([01]\d|2[0-3]):[0-5]\d$")] = "08:00"
+    digest_weekday: Annotated[int, Field(ge=0, le=6)] = 5  # 0 = Monday
 
 
 def _strip(v: object) -> object:
@@ -227,3 +232,29 @@ class NoteIn(Strict):
 
 class PostponeIn(Strict):
     to: Day
+
+
+class PushKeys(Strict):
+    p256dh: Annotated[str, Field(min_length=80, max_length=200, pattern=r"^[A-Za-z0-9_-]+={0,2}$")]
+    auth: Annotated[str, Field(min_length=16, max_length=64, pattern=r"^[A-Za-z0-9_-]+={0,2}$")]
+
+
+def _push_endpoint(v: str) -> str:
+    from garten_planer.push import push_endpoint_ok
+
+    if not push_endpoint_ok(v):
+        raise ValueError("not a known push service")
+    return v
+
+
+Endpoint = Annotated[str, Field(max_length=1000), AfterValidator(_push_endpoint)]
+
+
+class PushSubIn(Strict):
+    endpoint: Endpoint
+    keys: PushKeys
+    label: Annotated[str, BeforeValidator(_strip), Field(max_length=60)] = ""
+
+
+class EndpointIn(Strict):
+    endpoint: Endpoint

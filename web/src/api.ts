@@ -12,7 +12,7 @@ export interface GardenSettings {
   location: { ort: string | null; plz: string | null; bundesland: (typeof BUNDESLAENDER)[number] | null };
   preferences: { fertiliser: Fertiliser; eco_defaults: boolean };
   legal: { baumschutz_girth_cm: number | null; fruit_trees_exempt: boolean };
-  notifications: { weather_push: boolean };
+  notifications: { weather_push: boolean; digest_mode: 'daily' | 'weekly' | 'off'; digest_time: string; digest_weekday: number };
 }
 
 export class ApiError extends Error {
@@ -123,5 +123,9 @@ export const api = {
   skip: (id: string, note?: string) => request<Todo>('POST', `/todos/${enc(id)}/skip`, note === undefined ? {} : { note }),
   undo: (id: string) => request<Todo>('POST', `/todos/${enc(id)}/undo`),
   postpone: (id: string, to: string) => request<Todo>('POST', `/todos/${enc(id)}/postpone`, { to }),
+  pushKey: () => request<{ public_key: string | null }>('GET', '/push/key'),
+  pushSubscribe: (s: { endpoint: string; keys: { p256dh: string; auth: string }; label: string }) => request<{ id: string }>('POST', '/push/subscriptions', s),
+  pushUnsubscribe: (endpoint: string) => request<unknown>('POST', '/push/unsubscribe', { endpoint }),
+  pushTest: (endpoint: string) => request<unknown>('POST', '/push/test', { endpoint }),
   calendar: (year: number) => request<{ year: number; months: CalendarEntry[][] }>('GET', `/calendar?year=${year}`),
 };

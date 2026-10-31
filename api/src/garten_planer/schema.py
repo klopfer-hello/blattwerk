@@ -172,6 +172,7 @@ todos = Table(
     Column("done_at", DateTime(timezone=True)),
     Column("note", Text, nullable=False),
     Column("postponed", Boolean, nullable=False),
+    Column("notified_at", DateTime(timezone=True)),  # included in a push digest (sent once)
     Column("created_at", DateTime(timezone=True), nullable=False),
     # makes creating occurrences idempotent; a timing change starts a new generation, so old
     # occurrences (history) never block new ones and are never renamed or deleted
@@ -180,4 +181,37 @@ todos = Table(
     CheckConstraint("due_to >= due_from", name="window"),
     CheckConstraint("(status = 'open') = (done_at IS NULL)", name="done_at"),
     Index("ix_todos_status_due_from", "status", "due_from"),
+)
+
+push_subs = Table(  # one row per device that allowed push (personal data: volume only)
+    "push_subs",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("endpoint", Text, nullable=False, unique=True),
+    Column("p256dh", Text, nullable=False),
+    Column("auth", Text, nullable=False),
+    Column("label", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("last_ok_at", DateTime(timezone=True)),
+)
+
+push_messages = Table(  # outbox: the api writes, the worker (only one with internet) sends
+    "push_messages",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("sub_id", Text, ForeignKey("push_subs.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("title", Text, nullable=False),
+    Column("body", Text, nullable=False),
+    Column("url", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("sent_at", DateTime(timezone=True)),
+    Column("attempts", Integer, nullable=False),
+    Column("last_error", Text),
+)
+
+kv = Table(  # small job state (e.g. date of the last digest)
+    "kv",
+    metadata,
+    Column("key", Text, primary_key=True),
+    Column("value", JSONB, nullable=False),
 )

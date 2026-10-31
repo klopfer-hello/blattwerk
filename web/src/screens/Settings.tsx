@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, BUNDESLAENDER, api, type Fertiliser, type GardenSettings } from '../api';
 import { Back } from '../components/ui';
+import { disablePush, enablePush, pushKey, pushState, testPush, type PushState } from '../push';
 
 export const FERTILISER: Record<Fertiliser, string> = { gemischt: 'Gemischt', organisch: 'Organisch', mineralisch: 'Mineralisch' };
 
@@ -111,10 +112,36 @@ export function Settings() {
       </section>
 
       <section className="stack" style={{ gap: 12 }}>
-        <h2 className="eyebrow">Benachrichtigungen</h2>
-        <Toggle id="push" label="Push bei Wetter-Warnungen" hint="Kommt mit dem Wetter-Modul" checked={s.notifications.weather_push}
+        <h2 className="eyebrow">Benachrichtigungen (für alle im Haushalt)</h2>
+        <div className="stack">
+          <span className="label">Neue Aufgaben melden</span>
+          <div className="row" role="group" aria-label="Wie oft">
+            {([['daily', 'Täglich'], ['weekly', 'Wöchentlich'], ['off', 'Aus']] as const).map(([m, label]) => (
+              <button key={m} className="seg" aria-pressed={s.notifications.digest_mode === m} onClick={() => set('notifications', { digest_mode: m })}>{label}</button>
+            ))}
+          </div>
+        </div>
+        {s.notifications.digest_mode !== 'off' && (
+          <div className="grid2">
+            <div className="field">
+              <label htmlFor="dtime">Uhrzeit</label>
+              <input id="dtime" type="time" className="input" value={s.notifications.digest_time} onChange={(e) => set('notifications', { digest_time: e.target.value })} />
+            </div>
+            {s.notifications.digest_mode === 'weekly' && (
+              <div className="field">
+                <label htmlFor="dday">Wochentag</label>
+                <select id="dday" className="input" value={s.notifications.digest_weekday} onChange={(e) => set('notifications', { digest_weekday: Number(e.target.value) })}>
+                  {['Montag', 'Dienstag', 'Mittwoch', 'Donnerstag', 'Freitag', 'Samstag', 'Sonntag'].map((d, i) => <option key={d} value={i}>{d}</option>)}
+                </select>
+              </div>
+            )}
+          </div>
+        )}
+        <span className="tiny">Höchstens einmal am Tag (bzw. in der Woche) und nur, wenn etwas Neues fällig ist – sonst bleibt das Handy still.</span>
+        <Toggle id="push" label="Push bei Wetter-Warnungen" hint="Kommt mit dem Wetter-Modul (M6), sofort statt zur Uhrzeit" checked={s.notifications.weather_push}
           onChange={(v) => set('notifications', { weather_push: v })} />
       </section>
+      <DevicePush />
 
       {error && <ErrorBox error={error} />}
       <button className={saved ? 'btn primary done' : 'btn primary'} onClick={save} disabled={saving}>
@@ -134,6 +161,47 @@ function ErrorBox({ error }: { error: ApiError }) {
     <div className="box" role="alert" style={{ color: 'var(--urgent)' }}>
       {other.length > 0 ? <>Bitte prüfen: {other.map((f) => FIELD_TEXT[f] ?? f).join(', ')}</> : error.message}
     </div>
+  );
+}
+
+const PUSH_TEXT: Record<PushState, string> = {
+  on: 'Push ist auf diesem Gerät aktiv.',
+  off: 'Push ist auf diesem Gerät aus.',
+  denied: 'Benachrichtigungen sind für diese Seite im Browser/Handy blockiert. In den Einstellungen des Browsers erlauben.',
+  'ios-install': 'Auf dem iPhone geht Push nur, wenn die App auf dem Home-Bildschirm liegt: Teilen → „Zum Home-Bildschirm“, dann von dort öffnen.',
+  unsupported: 'Dieser Browser kann keine Push-Nachrichten.',
+  'no-key': 'Push ist auf dem Server noch nicht eingerichtet.',
+};
+
+function DevicePush() {
+  const [state, setState] = useState<PushState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [info, setInfo] = useState('');
+  const [key, setKey] = useState<string | null>(null);
+  useEffect(() => {
+    pushState().then(setState, () => setState('unsupported'));
+    pushKey().then(setKey, () => setKey(null));
+  }, []);
+  async function run(f: () => Promise<PushState | void>, done?: string) {
+    if (busy) return;
+    setBusy(true); setInfo('');
+    try { const r = await f(); if (r) setState(r); if (done) setInfo(done); }
+    catch { setInfo('Hat nicht geklappt. Bitte später nochmal versuchen.'); }
+    finally { setBusy(false); }
+  }
+  return (
+    <section className="outline stack" style={{ gap: 10 }}>
+      <h2 style={{ fontSize: 17 }}>Dieses Gerät</h2>
+      <span className="small">{state ? PUSH_TEXT[state] : 'Prüfe …'}</span>
+      {state === 'off' && <button className="btn primary" disabled={busy} onClick={() => run(() => enablePush(key))}>Push auf diesem Gerät aktivieren</button>}
+      {state === 'on' && (
+        <div className="grid2">
+          <button className="btn" disabled={busy} onClick={() => run(testPush, 'Test-Nachricht ist unterwegs (kann bis zu einer Minute dauern).')}>Test senden</button>
+          <button className="btn" disabled={busy} onClick={() => run(disablePush)}>Ausschalten</button>
+        </div>
+      )}
+      {info && <span className="small" role="status">{info}</span>}
+    </section>
   );
 }
 

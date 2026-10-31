@@ -19,7 +19,7 @@ DATABASE_URL = os.environ.get(
     "GP_TEST_DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/garten_planer_test"
 )
 BASE = "http://testserver"
-TABLES = "todos, tasks, plants, standorte, cultivars, species, settings"
+TABLES = "push_messages, push_subs, kv, todos, tasks, plants, standorte, cultivars, species, settings"
 
 
 @pytest.fixture(scope="session")
@@ -50,7 +50,7 @@ def db(engine: Engine) -> Engine:
 
 @pytest.fixture
 def config(db: Engine) -> Config:
-    return Config(database_url=DATABASE_URL, version="9.9.9+test")  # type: ignore[arg-type]
+    return Config(database_url=DATABASE_URL, version="9.9.9+test", vapid_public="test-public-key")  # type: ignore[arg-type]
 
 
 @pytest.fixture

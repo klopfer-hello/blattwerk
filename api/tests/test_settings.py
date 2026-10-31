@@ -13,7 +13,7 @@ VALID: dict[str, Any] = {
     "location": {"ort": "Musterstadt", "plz": "00000", "bundesland": "Sachsen"},
     "preferences": {"fertiliser": "organisch", "eco_defaults": False},
     "legal": {"baumschutz_girth_cm": 80, "fruit_trees_exempt": True},
-    "notifications": {"weather_push": False},
+    "notifications": {"weather_push": False, "digest_mode": "weekly", "digest_time": "07:30", "digest_weekday": 6},
 }
 
 
@@ -24,7 +24,7 @@ def test_defaults_when_nothing_saved(client: TestClient) -> None:
         "location": {"ort": None, "plz": None, "bundesland": None},
         "preferences": {"fertiliser": "gemischt", "eco_defaults": True},
         "legal": {"baumschutz_girth_cm": None, "fruit_trees_exempt": True},
-        "notifications": {"weather_push": True},
+        "notifications": {"weather_push": True, "digest_mode": "daily", "digest_time": "08:00", "digest_weekday": 5},
     }
 
 

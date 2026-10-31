@@ -2,7 +2,8 @@
 # scripts/deploy.sh, which writes the image tags, GP_HOST, TRAEFIK_NETWORK and a
 # generated GP_DB_PASSWORD into the host's .env (never committed, never printed).
 # Only the web container is reachable (through Traefik); database, migrations and
-# api sit on an internal network without ports and without a route out.
+# api sit on an internal network without ports and without a route out. The worker
+# additionally joins `egress`: it is the only one that can reach the push services.
 services:
   db:
     image: postgres:17.10-alpine
@@ -47,11 +48,36 @@ services:
     restart: unless-stopped
     environment:
       GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
+      GP_VAPID_PUBLIC: ${GP_VAPID_PUBLIC:-}
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  worker:   # push digest + outbox; the ONLY container with a route to the internet (push services)
+    image: ${GARTEN_PLANER_API_IMAGE:?set by scripts/deploy.sh}
+    pull_policy: never
+    container_name: garten-planer-worker
+    command: ["python", "-m", "garten_planer.worker"]
+    restart: unless-stopped
+    environment:
+      GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
+      GP_VAPID_PUBLIC: ${GP_VAPID_PUBLIC:-}
+      GP_VAPID_PRIVATE: ${GP_VAPID_PRIVATE:-}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend, egress]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/worker-alive') > 120)"]
+      interval: 30s
+      start_period: 40s
+      retries: 3
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -83,6 +109,7 @@ volumes:
 networks:
   backend:
     internal: true
+  egress: {}   # normal bridge with internet; only the worker joins it
   routing:
     name: ${TRAEFIK_NETWORK:?}
     external: true
