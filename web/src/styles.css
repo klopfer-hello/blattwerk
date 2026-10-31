@@ -131,6 +131,7 @@ textarea.input { padding: 12px 14px; min-height: 96px; resize: vertical; }
 .season { display: flex; justify-content: space-between; padding: 8px 12px; border-radius: 10px; }
 .season.now { background: var(--green); color: var(--green-ink); font-weight: 700; }
 .season.past { color: var(--muted); }
+.season .tiny { color: inherit; opacity: 0.85; }   /* the indicator line takes the row's colour (white on the green "now" row) */
 .switch { width: 56px; height: 32px; border-radius: 16px; border: 0; padding: 3px; cursor: pointer; display: flex; background: var(--input); justify-content: flex-start; }
 .switch[aria-checked='true'] { background: var(--green); justify-content: flex-end; }
 .switch span { width: 26px; height: 26px; border-radius: 13px; background: #FFFFFF; }
