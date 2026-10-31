@@ -1,0 +1,35 @@
+# Secrets and host-specific files
+.env
+.env.*
+!.env.example
+docker-compose.override.yml
+*.local.*
+
+# Local agent context, requirements and issue tracker (may describe the private host setup)
+/CLAUDE.md
+.claude/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Rust
+target/
+
+# Web
+node_modules/
+dist/
+test-results/
+playwright-report/
+
+# Data
+/data/
+*.db
+*.db-*
+.DS_Store
