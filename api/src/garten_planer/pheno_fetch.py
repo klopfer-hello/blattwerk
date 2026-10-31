@@ -96,9 +96,11 @@ async def normals_due(engine: AsyncEngine, lat: float, lon: float, now: datetime
     """Normals 1991-2020 do not change: computed once per region; after a failed attempt
     again only after BACKOFF (the files are 25-100 MB each)."""
     job = await _job(engine)
-    if job.get("region") == _fingerprint(lat, lon) and job.get("done"):
+    if job.get("region") != _fingerprint(lat, lon):
+        return True  # new region or a new phase/file mapping: at once
+    if job.get("done"):
         return False
-    last = job.get("attempt_at")
+    last = job.get("attempt_at")  # the same region failed before: wait
     return last is None or now - datetime.fromisoformat(last) > BACKOFF
 
 

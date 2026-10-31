@@ -187,3 +187,37 @@ def test_implausible_observation_is_refused(client: TestClient, db: Engine) -> N
         "/api/season/observations", json={"phase": "vollherbst", "day": date.today().isoformat()}, headers=H
     )
     assert r.status_code == 422
+
+
+def test_normals_job_runs_at_once_for_a_new_region_and_backs_off_after_a_failure(db: Engine) -> None:
+    import asyncio
+    import json
+    from datetime import UTC, datetime, timedelta
+
+    from sqlalchemy.ext.asyncio import create_async_engine
+
+    from garten_planer import pheno_fetch
+    from tests.conftest import DATABASE_URL
+
+    def due(job: dict[str, object]) -> bool:
+        with db.begin() as c:
+            c.execute(text("DELETE FROM kv WHERE key = 'pheno_normals_job'"))
+            c.execute(text("INSERT INTO kv (key, value) VALUES ('pheno_normals_job', CAST(:v AS jsonb))"),
+                      {"v": json.dumps(job)})  # fmt: skip
+
+        async def go() -> bool:
+            engine = create_async_engine(DATABASE_URL)
+            try:
+                return await pheno_fetch.normals_due(engine, 54.0, 9.0, datetime.now(UTC))
+            finally:
+                await engine.dispose()
+
+        return asyncio.run(go())
+
+    now = datetime.now(UTC).isoformat()
+    region = pheno_fetch._fingerprint(54.0, 9.0)
+    assert due({"region": "v1:54.0,9.0", "attempt_at": now, "done": True})  # old mapping: again, at once
+    assert not due({"region": region, "attempt_at": now, "done": True})
+    assert not due({"region": region, "attempt_at": now, "done": False})  # failed just now: wait
+    old = (datetime.now(UTC) - timedelta(days=4)).isoformat()
+    assert due({"region": region, "attempt_at": old, "done": False})
