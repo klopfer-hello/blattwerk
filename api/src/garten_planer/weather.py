@@ -17,8 +17,11 @@ UNKNOWN = "unbekannt"  # stale, and no value within the query window
 
 # SELECT *: a column appears only once something wrote it (no "label" before the first soil value)
 HA_SQL = "SELECT * FROM ha WHERE time > now() - INTERVAL '1 day' ORDER BY time"
+# The forecast hours just ahead are rewritten by every fetch: their `fetched` is the newest one.
+# Queries stay narrow in time: InfluxDB 3 Core refuses to scan more than a few hundred files.
 FETCHED_SQL = (
-    "SELECT source, max(fetched) AS fetched FROM weather_fc WHERE time > now() - INTERVAL '2 days' GROUP BY source"
+    "SELECT source, max(fetched) AS fetched FROM weather_fc "
+    "WHERE time >= now() - INTERVAL '1 hour' AND time < now() + INTERVAL '6 hours' GROUP BY source"
 )
 
 

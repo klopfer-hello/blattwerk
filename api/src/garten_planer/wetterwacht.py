@@ -296,11 +296,18 @@ SILENT_PUSH_EVERY = timedelta(hours=24)
 
 async def check_sensor_feed(engine: AsyncEngine, db: Influx, now: datetime) -> bool:
     """Push once a day while the garden's sensors are silent (ticket 033); True when pushed."""
-    rows = await db.query("SELECT max(time) AS last FROM ha WHERE time > now() - INTERVAL '30 days'")
+    rows = await db.query("SELECT max(time) AS last FROM ha WHERE time > now() - INTERVAL '1 day'")  # narrow
     last = rows[0].get("last") if rows else None
-    if not last:  # no sensors yet (no Home Assistant, or Telegraf just set up): nothing to watch
-        return False
-    since = _utc(last)
+    async with engine.begin() as c:
+        seen = (await c.execute(select(kv.c.value).where(kv.c.key == "sensors_seen"))).scalar()
+        if last:
+            since = _utc(last)
+            stmt = pg_insert(kv).values(key="sensors_seen", value={"at": since.isoformat()})
+            await c.execute(stmt.on_conflict_do_update(index_elements=["key"], set_={"value": stmt.excluded.value}))
+        elif seen:  # values came before, none for a day
+            since = datetime.fromisoformat(seen["at"])
+        else:  # never any sensor (no Home Assistant, or Telegraf just set up): nothing to watch
+            return False
     if now - since < SENSORS_SILENT:
         return False
     async with engine.begin() as c:

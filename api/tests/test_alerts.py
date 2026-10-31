@@ -319,5 +319,7 @@ def test_silent_sensors_push_once_a_day(client: TestClient, db: Engine) -> None:
     assert check("2026-11-02T01:00:00", now) is True  # 11 h silent
     assert check("2026-11-02T01:00:00", now + timedelta(hours=3)) is False  # once a day
     assert check("2026-11-02T01:00:00", now + timedelta(hours=25)) is True  # still silent a day later
+    with db.begin() as c:
+        c.execute(text("DELETE FROM kv WHERE key IN ('sensors_seen', 'sensors_silent_push')"))
     assert check(None, now) is False  # never had sensors: nothing to watch
     assert count(db, "SELECT count(*) FROM push_messages") == 2
