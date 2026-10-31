@@ -153,12 +153,21 @@ tasks = Table(
     Column("products", JSONB, nullable=False, server_default=text("'[]'::jsonb")),  # plan tasks: products/brands
     Column("why", Text, nullable=False, server_default=""),  # plan tasks: one sentence why
     Column("retired", Boolean, nullable=False, server_default=false()),  # replaced by a newer plan: history only
+    Column("alert_id", Text, ForeignKey("weather_alerts.id", ondelete="RESTRICT")),  # source "alert"
+    Column("alert_action", Text),  # which action of the alert (kuebel, gewaechshaus, ...)
     Column("enabled", Boolean, nullable=False),
     Column("generation", Integer, nullable=False),  # +1 on every timing change; occurrences keep theirs
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(_in("category", TASK_CATEGORY), name="category"),
     CheckConstraint(_in("source", TASK_SOURCE), name="source"),
+    Index(  # one task per action and alert
+        "uq_tasks_alert_action",
+        "alert_id",
+        "alert_action",
+        unique=True,
+        postgresql_where=text("alert_id IS NOT NULL"),
+    ),
     CheckConstraint(
         "(category = 'schnitt' AND cut_type IN ('pflege', 'stark')) OR (category <> 'schnitt' AND cut_type IS NULL)",
         name="cut_type",
@@ -282,4 +291,23 @@ name_jobs = Table(  # AI name suggestions (F-AI-3): the typed name in, candidate
     Column("finished_at", DateTime(timezone=True)),
     CheckConstraint(_in("status", ("queued", "running", "done", "failed")), name="status"),
     Index("ix_name_jobs_status_created_at", "status", "created_at"),
+)
+
+weather_alerts = Table(  # one per weather event (kind + local day), F-WX-4; written by wetterwacht
+    "weather_alerts",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("family", Text, nullable=False),  # frost | heat | storm: one alert per family and day
+    Column("kind", Text, nullable=False),  # within frost: frost, strong_frost or late_frost (can change)
+    Column("day", Date, nullable=False),
+    Column("value", Float, nullable=False),  # current forecast extreme (°C or km/h)
+    Column("pushed_value", Float),  # what the last push said; a new push only when clearly worse
+    Column("first_at", DateTime(timezone=True), nullable=False),
+    Column("status", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(_in("kind", ("frost", "strong_frost", "late_frost", "heat", "storm")), name="kind"),
+    CheckConstraint(_in("status", ("active", "cancelled", "past")), name="status"),
+    CheckConstraint(_in("family", ("frost", "heat", "storm")), name="family"),
+    UniqueConstraint("family", "day", name="uq_weather_alerts_family_day"),
 )

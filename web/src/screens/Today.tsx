@@ -1,10 +1,9 @@
 // Heute (M3: real data): this month's open to-dos (overdue, urgent, then by
 // category) and what was done or skipped this month. Ticking off reloads the
-// list, so every phone shows the same state. The weather warning stays a
-// preview page until M6.
+// list, so every phone shows the same state. Weather alerts (M6b) sit on top;
+// their urgent to-dos are in the list like any other.
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, CATEGORIES, api, type Category, type Heute, type Todo } from '../api';
-import { ALERT, NIGHTS, TODOS } from '../mock/data';
+import { ApiError, CATEGORIES, api, type Category, type Heute, type Todo, type WeatherAlert } from '../api';
 import { Back, Icon, TaskChip, deDate, localDay, monthName } from '../components/ui';
 
 const ORDER = Object.keys(CATEGORIES) as Category[];
@@ -47,6 +46,7 @@ export function Today() {
         <h1 className="title">ToDos im {data ? monthName(data.month) : monthName(now.getMonth() + 1)}</h1>
       </header>
 
+      <AlertCards />
       {error && <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error}</p>}
       {!data && !error && <p className="muted">Lädt …</p>}
 
@@ -108,37 +108,79 @@ export function TodoItem({ t, busy, onToggle }: { t: Todo; busy: boolean; onTogg
   );
 }
 
-// ----- preview until M6 (weather) ---------------------------------------------
+// ----- weather alerts (M6b) ---------------------------------------------------
+
+const ICE = new Set(['frost', 'strong_frost', 'late_frost']);
+export function alertWhen(w: WeatherAlert) {
+  const d = new Date(`${w.day}T12:00:00`);
+  const day = `${WEEKDAY[d.getDay()]}, ${d.getDate()}.${d.getMonth() + 1}.`;
+  return ICE.has(w.kind) ? `in der Nacht auf ${day}` : `am ${day}`;
+}
+
+// Polls while visible, again when the app comes back to the front; errors keep the last answer.
+function usePolled<T>(load: () => Promise<T>): T | null {
+  const [v, setV] = useState<T | null>(null);
+  useEffect(() => {
+    let current = true;
+    const get = () => load().then((x) => { if (current) setV(x); }, () => undefined);
+    const onVisible = () => { if (document.visibilityState === 'visible') get(); };
+    get();
+    const t = window.setInterval(get, 5 * 60 * 1000);
+    document.addEventListener('visibilitychange', onVisible);
+    return () => { current = false; window.clearInterval(t); document.removeEventListener('visibilitychange', onVisible); };
+  }, [load]);
+  return v;
+}
+
+function AlertCards() {
+  const list = usePolled(api.alerts);
+  if (!list?.length) return null;
+  return (
+    <div className="stack" style={{ gap: 8 }} role="alert">
+      {list.map((a) => (
+        <a key={a.kind + a.day} href="#/warnung" className="card stack" style={{ gap: 4, textDecoration: 'none', color: 'var(--ink)', borderLeft: `6px solid ${ICE.has(a.kind) ? 'var(--frost)' : 'var(--urgent)'}` }}>
+          <span className="eyebrow urgent">Wetterwarnung</span>
+          <strong style={{ fontSize: 18 }}>{a.label}: {a.text}</strong>
+          <span className="small muted">{alertWhen(a)}{a.tasks > 0 ? ' · Was zu tun ist, steht unten als dringende Aufgabe' : ' · keine Pflanze betroffen'} ›</span>
+        </a>
+      ))}
+    </div>
+  );
+}
 
 export function Alert() {
-  const urgent = TODOS.filter((t) => t.urgent);
+  const w = usePolled(api.weather);
+  const nights = w?.days ?? [];
   return (
     <div className="page">
-      <Back href="#/wetter" label="Wetter" />
-      <span className="chip" style={{ background: 'var(--legal-tint)', color: 'var(--legal-ink)' }}>Vorschau – so sieht eine Wetter-Warnung aus (M6)</span>
-      <div className="stack">
-        <h1 className="title-s">{ALERT.title}</h1>
-        <p style={{ color: 'var(--ink-2)' }}>{ALERT.text}</p>
-      </div>
-      <div className="box stack" style={{ gap: 12 }}>
-        <span className="small muted" style={{ fontWeight: 700 }}>Tiefstwerte (Beispiel)</span>
-        <div className="nights" style={{ height: 150 }}>
-          {NIGHTS.map((n) => {
-            const frost = n.t < 0;
-            return (
-              <div key={n.day} className="night" style={{ height: '100%' }}>
-                <strong style={{ color: frost ? 'var(--frost)' : 'var(--muted)', fontSize: 15 }}>{n.t > 0 ? '+' : n.t < 0 ? '−' : ''}{Math.abs(n.t)}°</strong>
-                <div style={{ width: '100%', borderRadius: 6, height: 20 + Math.abs(n.t) * 12, background: frost ? 'var(--frost)' : 'var(--line)' }} />
-                <span className="tiny">{n.day}</span>
-              </div>
-            );
-          })}
+      <Back href="#/heute" label="Heute" />
+      <h1 className="title-s">Wetterwarnungen</h1>
+      {!w && <p className="muted">Lädt …</p>}
+      {w && w.alerts.length === 0 && <p className="box">Gerade keine Warnung. Frost, Spätfrost, Hitze und Sturm werden 24–48 Stunden vorher gemeldet.</p>}
+      {w?.alerts.map((a) => (
+        <div key={a.kind + a.day} className="box stack" style={{ gap: 4, borderLeft: `6px solid ${ICE.has(a.kind) ? 'var(--frost)' : 'var(--urgent)'}` }}>
+          <strong style={{ fontSize: 18 }}>{a.label}: {a.text}</strong>
+          <span className="small muted">{alertWhen(a)}</span>
         </div>
-      </div>
-      <section className="stack">
-        <h2 className="eyebrow urgent">Würde dann dringend</h2>
-        {urgent.map((t) => <div key={t.id} className="card"><strong>{t.title}</strong><div className="small muted">{t.plantText}</div></div>)}
-      </section>
+      ))}
+      {nights.length > 0 && (
+        <div className="box stack" style={{ gap: 12 }}>
+          <span className="small muted" style={{ fontWeight: 700 }}>Tiefstwerte der nächsten Tage</span>
+          <div className="nights" style={{ height: 150 }}>
+            {nights.map((n) => {
+              const t = n.t_min ?? 0;
+              return (
+                <div key={n.date} className="night" style={{ height: '100%' }}>
+                  <strong style={{ color: n.frost ? 'var(--frost)' : 'var(--muted)', fontSize: 15 }}>{Math.round(t)}°</strong>
+                  <div style={{ width: '100%', borderRadius: 6, height: 20 + Math.min(Math.abs(t), 10) * 10, background: n.frost ? 'var(--frost)' : 'var(--line)' }} />
+                  <span className="tiny">{new Date(`${n.date}T12:00:00`).toLocaleDateString('de-DE', { weekday: 'short' })}</span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+      <a href="#/heute" className="btn primary">Zu den dringenden Aufgaben</a>
     </div>
   );
 }

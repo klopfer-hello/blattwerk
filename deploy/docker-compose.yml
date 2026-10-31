@@ -96,6 +96,29 @@ services:
       migrate:
         condition: service_completed_successfully
 
+  wetterwacht:   # weather alerts every 10 min: forecast (InfluxDB) -> alerts, urgent to-dos, push outbox (Postgres)
+    image: ${GARTEN_PLANER_API_IMAGE:?set by scripts/deploy.sh}
+    pull_policy: never
+    container_name: garten-planer-wetterwacht
+    command: ["python", "-m", "garten_planer.wetterwacht"]
+    restart: unless-stopped
+    environment:
+      GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
+      GP_INFLUX_TOKEN: ${GP_INFLUX_TOKEN:-}
+    read_only: true
+    tmpfs: [/tmp]
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    networks: [backend]   # no internet: it only reads InfluxDB and writes Postgres
+    healthcheck:
+      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/wetterwacht-alive') > 1500)"]
+      interval: 60s
+      start_period: 60s
+      retries: 3
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
   influxdb:   # weather time series (M6); token file created once by deploy.sh in the influx-secret volume
     image: influxdb:3.11.8-core
     container_name: garten-planer-influxdb

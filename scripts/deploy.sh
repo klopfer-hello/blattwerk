@@ -121,7 +121,7 @@ healthy() {   # the garden app's containers healthy, within 90 s (weather proble
 }
 running() { [[ $(docker inspect -f '{{.Config.Image}}' "$1" 2>/dev/null) == "$2" ]]; }
 weather_check() {   # report only
-  for c in garten-planer-influxdb garten-planer-telegraf; do
+  for c in garten-planer-influxdb garten-planer-telegraf garten-planer-wetterwacht; do
     [[ $c == garten-planer-telegraf && -z $(get COMPOSE_PROFILES) ]] && { echo "weather: telegraf off (no GP_HA_URL/GP_HA_TOKEN)"; continue; }
     for _ in $(seq 1 30); do
       s=$(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing)

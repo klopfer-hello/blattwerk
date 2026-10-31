@@ -238,6 +238,6 @@ def test_weather_route(client) -> None:  # type: ignore[no-untyped-def]
     w = client.get("/api/weather").json()
     assert w["available"] is True and w["current"]["outdoor"]["value"] == 6.1 and w["stale"]["forecast"] == "unbekannt"
     client.app.dependency_overrides[get_influx] = lambda: FakeInflux(fail=True)
-    assert client.get("/api/weather").json() == {"available": False}
+    assert client.get("/api/weather").json() == {"available": False, "alerts": []}
     client.app.dependency_overrides[get_influx] = lambda: None
-    assert client.get("/api/weather").json() == {"available": False}
+    assert client.get("/api/weather").json() == {"available": False, "alerts": []}

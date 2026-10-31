@@ -143,7 +143,7 @@ export function Weather() {
       <Back href="#/mehr" label="Mehr" />
       <h1 className="title-s">Wetter &amp; Jahreszeit</h1>
       <WeatherNow />
-      <a href="#/warnung" className="small">So sieht eine Frost-Warnung aus (Warnungen kommen mit dem nächsten Schritt) ›</a>
+      <a href="#/warnung" className="small">Wetterwarnungen ›</a>
 
       <section className="stack">
         <h2 className="eyebrow">Phänologischer Kalender · Vorschau (M7)</h2>

@@ -59,7 +59,7 @@ function Welcome({ onClose }: { onClose: () => void }) {
           <li><strong>Kalender</strong>: was in jedem Monat ansteht.</li>
           <li><strong>Pflanzen</strong>: eure Pflanzen und Standorte, mit ihren Aufgaben.</li>
           <li><strong>Fragen</strong>: hier beantwortet später eine KI Fragen zum Garten (noch Vorschau).</li>
-          <li><strong>Mehr</strong>: Einstellungen, Standorte, Wetter (noch Vorschau).</li>
+          <li><strong>Mehr</strong>: Einstellungen, Standorte, Wetter.</li>
         </ul>
         <p className="small muted">Tipp: Im Browser-Menü „Zum Home-Bildschirm“ wählen – dann öffnet sich die App wie eine normale App.</p>
         <button className="btn primary" onClick={onClose} autoFocus>Los geht’s</button>
