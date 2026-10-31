@@ -43,7 +43,7 @@ h1, h2, h3, p { margin: 0; }
 .banner { background: var(--legal-tint); color: var(--legal-ink); font-size: 14px; padding: 8px 20px; padding-top: calc(8px + env(safe-area-inset-top)); display: flex; gap: 12px; align-items: center; justify-content: center; border-bottom: 1px solid var(--legal-line); }
 .banner button { border: 0; background: transparent; text-decoration: underline; cursor: pointer; min-height: 32px; color: inherit; }
 
-.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--bg); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); padding: 6px 8px calc(10px + env(safe-area-inset-bottom)); }
+.tabbar { position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; background: var(--bg); border-top: 1px solid var(--line); display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); padding: 6px 4px calc(10px + env(safe-area-inset-bottom)); }
 .tab { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 4px; min-height: 56px; text-decoration: none; color: var(--muted); font-size: 13px; }
 .tab[aria-current='page'] { color: var(--green); font-weight: 700; }
 .topbar { display: none; }

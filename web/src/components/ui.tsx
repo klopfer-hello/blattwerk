@@ -38,6 +38,9 @@ const paths: Record<string, ReactNode> = {
   tick: <path d="M20 6 9 17l-5-5" />,
   send: <><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7z" /></>,
   cloud: <path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z" />,
+  more: <><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>,
+  gear: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></>,
+  info: <><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>,
 };
 
 export function Icon({ name, size = 24, stroke = 2 }: { name: keyof typeof paths | string; size?: number; stroke?: number }) {
@@ -52,8 +55,12 @@ const TABS = [
   { key: 'kalender', label: 'Kalender', icon: 'calendar' },
   { key: 'pflanzen', label: 'Pflanzen', icon: 'plant' },
   { key: 'fragen', label: 'Fragen', icon: 'chat' },
+  { key: 'mehr', label: 'Mehr', icon: 'more' },
 ];
-const SECTION: Record<string, string> = { heute: 'heute', warnung: 'heute', aufgabe: 'heute', kalender: 'kalender', pflanzen: 'pflanzen', pflanze: 'pflanzen', neu: 'pflanzen', fragen: 'fragen', wetter: 'wetter', einstellungen: 'wetter' };
+const SECTION: Record<string, string> = {
+  heute: 'heute', warnung: 'heute', aufgabe: 'heute', kalender: 'kalender', pflanzen: 'pflanzen', pflanze: 'pflanzen',
+  neu: 'pflanzen', fragen: 'fragen', mehr: 'mehr', wetter: 'mehr', einstellungen: 'mehr',
+};
 
 export function Nav({ route, urgent }: { route: string; urgent: number }) {
   const current = SECTION[route] ?? 'heute';
@@ -62,7 +69,7 @@ export function Nav({ route, urgent }: { route: string; urgent: number }) {
       <header className="topbar">
         <strong style={{ fontSize: 20, color: 'var(--green)' }}>Garten-Planer</strong>
         <nav aria-label="Hauptnavigation">
-          {[...TABS, { key: 'wetter', label: 'Wetter & Einstellungen', icon: 'cloud' }].map((t) => (
+          {TABS.map((t) => (
             <a key={t.key} href={`#/${t.key}`} aria-current={current === t.key ? 'page' : undefined}>{t.label}</a>
           ))}
         </nav>

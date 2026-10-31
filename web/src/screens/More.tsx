@@ -64,7 +64,7 @@ export function Weather() {
   ];
   return (
     <div className="page">
-      <Back href="#/heute" label="Heute" />
+      <Back href="#/mehr" label="Mehr" />
       <h1 className="title-s">Wetter &amp; Jahreszeit</h1>
 
       <section className="stack">
@@ -107,6 +107,37 @@ export function Weather() {
         ))}
         <a href="#/einstellungen" className="btn" style={{ marginTop: 12 }}>Einstellungen bearbeiten</a>
       </section>
+    </div>
+  );
+}
+
+// "Mehr" tab: everything that is not daily use. Later also Standorte, Backup.
+export function More({ onWelcome }: { onWelcome: () => void }) {
+  const [version, setVersion] = useState('');
+  useEffect(() => {
+    fetch('/api/healthz').then((r) => r.json()).then((h: { version?: string }) => setVersion(h.version ?? ''), () => setVersion(''));
+  }, []);
+  const rows = [
+    { href: '#/einstellungen', icon: 'gear', title: 'Einstellungen', text: 'Ort, Bundesland, Dünger, Baumschutz, Benachrichtigungen' },
+    { href: '#/wetter', icon: 'cloud', title: 'Wetter & Jahreszeit', text: 'Messwerte, Frostnächte, phänologischer Kalender' },
+  ];
+  return (
+    <div className="page">
+      <h1 className="title">Mehr</h1>
+      <nav className="stack" aria-label="Mehr">
+        {rows.map((r) => (
+          <a key={r.href} href={r.href} className="card" style={{ display: 'flex', gap: 14, alignItems: 'center', textDecoration: 'none', color: 'var(--ink)', minHeight: 64 }}>
+            <span style={{ color: 'var(--green)' }}><Icon name={r.icon} /></span>
+            <span className="stack" style={{ gap: 2, flex: 1 }}><strong style={{ fontSize: 17 }}>{r.title}</strong><span className="small muted">{r.text}</span></span>
+            <span aria-hidden="true" style={{ fontSize: 22, color: 'var(--muted)' }}>›</span>
+          </a>
+        ))}
+        <button className="card" onClick={onWelcome} style={{ display: 'flex', gap: 14, alignItems: 'center', minHeight: 64, cursor: 'pointer', textAlign: 'left' }}>
+          <span style={{ color: 'var(--green)' }}><Icon name="info" /></span>
+          <span className="stack" style={{ gap: 2 }}><strong style={{ fontSize: 17 }}>Kurze Erklärung</strong><span className="small muted">Die Begrüßung mit den Tipps noch einmal zeigen</span></span>
+        </button>
+      </nav>
+      <span className="tiny">Garten-Planer {version || '…'}</span>
     </div>
   );
 }

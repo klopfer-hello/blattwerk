@@ -25,7 +25,7 @@ export function Settings() {
   if (!s) {
     return (
       <div className="page">
-        <Back href="#/wetter" label="Wetter & Jahreszeit" />
+        <Back href="#/mehr" label="Mehr" />
         <h1 className="title-s">Einstellungen</h1>
         <p className="box">{error ? error.message : 'Lädt …'}</p>
       </div>
@@ -53,7 +53,7 @@ export function Settings() {
 
   return (
     <div className="page">
-      <Back href="#/wetter" label="Wetter & Jahreszeit" />
+      <Back href="#/mehr" label="Mehr" />
       <div className="stack" style={{ gap: 4 }}>
         <h1 className="title-s">Einstellungen</h1>
         <span className="small muted">Gelten für alle im Haushalt. Werden nur auf eurem Server gespeichert.</span>

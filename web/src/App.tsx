@@ -8,7 +8,7 @@ import { Alert, Today } from './screens/Today';
 import { Task } from './screens/Task';
 import { Calendar } from './screens/Calendar';
 import { AddPlant, PlantDetail, Plants } from './screens/Plants';
-import { Chat, Weather } from './screens/More';
+import { Chat, More, Weather } from './screens/More';
 import { Settings } from './screens/Settings';
 
 export interface TodoState {
@@ -61,6 +61,7 @@ export function App() {
       case 'fragen': return <Chat state={state} />;
       case 'wetter': return <Weather />;
       case 'einstellungen': return <Settings />;
+      case 'mehr': return <More onWelcome={() => setSaved((s) => ({ ...s, welcomed: false }))} />;
       default: return <Today state={state} />;
     }
   })();
@@ -91,6 +92,7 @@ function Welcome({ onClose }: { onClose: () => void }) {
           <li><strong>Kalender</strong>: was in jedem Monat ansteht.</li>
           <li><strong>Pflanzen</strong>: alle Pflanzen mit Pflegeplan und Schädlingen.</li>
           <li><strong>Fragen</strong>: hier beantwortet später eine KI Fragen zum Garten.</li>
+          <li><strong>Mehr</strong>: Einstellungen (Ort, Bundesland …) und Wetter &amp; Jahreszeit.</li>
         </ul>
         <p className="small muted">Tipp: Im Browser-Menü „Zum Home-Bildschirm“ wählen – dann öffnet sich die App wie eine normale App.</p>
         <p className="small muted">Was fehlt, was ist unklar? Einfach sagen – genau dafür ist die Vorschau da.</p>
