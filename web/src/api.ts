@@ -71,7 +71,8 @@ export interface Candidate {
   species_id: string; latin: string; german: string; cultivar_id: string | null; cultivar_name: string | null;
   unmatched: string; form_hint: Form | null; score: number;
 }
-export interface Species { id: string; latin: string; german: string[]; growth: string; woody: boolean; cultivars: { id: string; name: string }[] }
+export interface Species { id: string; latin: string; german: string[]; growth: string; woody: boolean; source: 'seed' | 'user'; cultivars: { id: string; name: string }[] }
+export const GROWTH = { baum: 'Baum', strauch: 'Strauch', hecke: 'Hecke', kletterpflanze: 'Kletterpflanze', kuebel: 'Kübelpflanze', staude: 'Staude', gras: 'Gras', knolle: 'Knolle', gemuese: 'Gemüse', kraut: 'Kraut', einjaehrig: 'Einjährig' } as const;
 
 export const CATEGORIES = {
   schnitt: 'Schnitt', duengen: 'Düngen', ernte: 'Ernte', pflanzenschutz: 'Pflanzenschutz',
@@ -175,6 +176,7 @@ export const api = {
   nameJob: (id: string) => request<NameJob>('GET', `/species/ai/${enc(id)}`),
   pickName: (id: string, index: number) => request<Picked>('POST', `/species/ai/${enc(id)}/pick`, { index }),
   species: (id: string) => request<Species>('GET', `/species/${enc(id)}`),
+  updateSpecies: (id: string, t: { german: string[]; growth: string; woody: boolean }) => request<Species>('PUT', `/species/${enc(id)}`, t),
   createCultivar: (speciesId: string, name: string) => request<{ id: string; name: string }>('POST', `/species/${enc(speciesId)}/cultivars`, { name }),
   plants: (archived = false) => request<Plant[]>('GET', `/plants${archived ? '?archived=true' : ''}`),
   plant: (id: string) => request<Plant>('GET', `/plants/${enc(id)}`),

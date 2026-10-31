@@ -17,6 +17,8 @@ services:
     volumes:
       - db:/var/lib/postgresql/data
     networks: [backend]
+    read_only: true   # writes only to its volume, the socket dir and /tmp (tested: init, restart, dump/restore)
+    tmpfs: ["/var/run/postgresql:uid=70,gid=70,mode=0775", /tmp]
     cap_drop: [ALL]
     cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]   # what the entrypoint needs (chown + su-exec)
     security_opt: [no-new-privileges:true]
@@ -33,6 +35,7 @@ services:
     restart: "no"
     environment:
       GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
+      GP_MCP_DB_PASSWORD: ${GP_MCP_DB_PASSWORD:?set by scripts/deploy.sh}   # the chat tools' role
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -78,6 +81,7 @@ services:
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       GP_PLAN_DAILY_LIMIT: ${GP_PLAN_DAILY_LIMIT:-60}
       GP_INFLUX_TOKEN: ${GP_INFLUX_TOKEN:-}
+      GP_MCP_DB_PASSWORD: ${GP_MCP_DB_PASSWORD:?set by scripts/deploy.sh}   # chat tools: own role, read + proposals
       GP_LAT: ${GP_LAT:-}   # nearest DWD MOSMIX station
       GP_LON: ${GP_LON:-}
     read_only: true
@@ -168,8 +172,8 @@ services:
       GP_INFLUX_TOKEN: ${GP_INFLUX_TOKEN:-}
       GP_HA_URL: ${GP_HA_URL:-}
       GP_HA_TOKEN: ${GP_HA_TOKEN:-}
-      GP_LAT: ${GP_LAT:-}
-      GP_LON: ${GP_LON:-}
+      GP_LAT_KM: ${GP_LAT_KM:-}   # rounded to about 1 km by deploy.sh: Open-Meteo and logs never see more
+      GP_LON_KM: ${GP_LON_KM:-}
       GP_HA_OUTDOOR: ${GP_HA_OUTDOOR:-}
       GP_HA_GREENHOUSE: ${GP_HA_GREENHOUSE:-}
       GP_HA_RAIN_DAY: ${GP_HA_RAIN_DAY:-}

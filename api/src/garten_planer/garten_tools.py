@@ -116,9 +116,9 @@ async def pflanze(c: AsyncConnection, pflanze_id: str, today: date) -> dict[str,
 
 
 async def aufgaben(c: AsyncConnection, today: date) -> dict[str, Any]:
-    from garten_planer.routes.todos import heute
+    from garten_planer.routes.todos import month_list  # the same list as Heute, read only
 
-    h = await heute(c, today)
+    h = await month_list(c, today)  # the app creates due occurrences itself
 
     def short(t: dict[str, Any]) -> dict[str, Any]:
         return {"titel": t["task"]["title"], "pflanze": (t.get("plant") or {}).get("title"),

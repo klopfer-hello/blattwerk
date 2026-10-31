@@ -20,7 +20,7 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pytest>=8.4",
-    "httpx>=0.28",
+    "httpx2>=2.13",  # what starlette's TestClient wants (httpx stays a runtime dependency)
     "ruff>=0.13",
     "mypy>=1.18",
     "types-defusedxml>=0.7.0.20260504",
@@ -53,6 +53,7 @@ packages = ["garten_planer"]
 exclude = ["src/garten_planer/migrations/"]  # alembic scripts: dynamic, revision file names
 
 [tool.pytest.ini_options]
+filterwarnings = ["error"]  # a new deprecation fails the run (ticket 012)
 testpaths = ["tests"]
 addopts = "-q"
 

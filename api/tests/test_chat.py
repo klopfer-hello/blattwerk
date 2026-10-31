@@ -6,13 +6,14 @@ from collections.abc import AsyncGenerator
 from datetime import date, timedelta
 from typing import Any
 
+import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from garten_planer.chat import parse_event
 from garten_planer.claude_cli import ClaudeError
-from garten_planer.worker import run_chat_jobs
+from garten_planer.worker import TURN, run_chat_jobs
 from tests.conftest import BASE, DATABASE_URL
 
 H = {"Origin": BASE}
@@ -172,3 +173,25 @@ def test_old_task_proposal_with_a_past_date_is_refused(client: TestClient, db: E
     aid = proposal(db, "aufgabe", '{"title": "Kübel reinholen", "category": "winterschutz", "recurrence": "once", '
                                   '"due_date": "2020-11-03", "instructions": "", "urgent": false}')  # fmt: skip
     assert client.post(f"/api/chat-actions/{aid}/confirm", headers=H).status_code == 409
+
+
+def test_short_narration_goes_the_answer_stays(client: TestClient) -> None:
+    first = ask(client, "Frage")
+    turn = {"type": "stream_event", "event": {"type": "message_start"}}
+    long_answer = "Die Hecke im Juni in Form schneiden, " * 5
+    events = [turn, delta("Ich schaue nach."), turn, delta(long_answer), turn, delta("Vorschlag steht bereit."), RESULT]
+    work(fake(events))
+    text_ = client.get(f"/api/chats/{first['chat_id']}").json()["messages"][1]["text"]
+    assert text_ == f"{long_answer.strip()}\n\nVorschlag steht bereit."
+    assert TURN not in text_
+
+
+def test_stream_ends_with_timeout_when_no_answer_comes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+    from garten_planer.routes import chat as chat_routes
+
+    monkeypatch.setattr(chat_routes, "STREAM_MAX_S", 0.5)
+    monkeypatch.setattr(chat_routes, "STREAM_POLL_S", 0.1)
+    first = ask(client, "Frage")
+    with client.stream("GET", f"/api/chats/{first['chat_id']}/stream", params={"message_id": first["message_id"]}) as r:
+        body = "".join(r.iter_text())
+    assert '"status": "timeout"' in body

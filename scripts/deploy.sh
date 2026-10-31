@@ -94,11 +94,19 @@ mv telegraf.conf.new telegraf.conf
 [[ -z $prev_web ]] && prev_web=$(get GARTEN_PLANER_IMAGE)       # 0.1.x used one image variable
 setenv GARTEN_PLANER_IMAGE ''
 [[ -n $(get GP_DB_PASSWORD) ]] || setenv GP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+[[ -n $(get GP_MCP_DB_PASSWORD) ]] || setenv GP_MCP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 if [[ -z $(get GP_VAPID_PRIVATE) ]]; then   # web push keys: generated here, never leave the host
   keys=$(docker run --rm --network none --entrypoint python "garten-planer-api:$tag" -m garten_planer.push keygen)
   setenv GP_VAPID_PUBLIC "$(sed -n 's/^GP_VAPID_PUBLIC=//p' <<<"$keys")"
   setenv GP_VAPID_PRIVATE "$(sed -n 's/^GP_VAPID_PRIVATE=//p' <<<"$keys")"
 fi
+round2() {   # about 1 km; a malformed value (comma, text) stops the deploy instead of becoming 0.00
+  [[ -z $1 ]] && return 0
+  [[ $1 =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || { echo "GP_LAT/GP_LON in .env must look like 51.05 (got '$1')" >&2; return 1; }
+  LC_ALL=C printf '%.2f' "$1"
+}
+lat_km=$(round2 "$(get GP_LAT)") && lon_km=$(round2 "$(get GP_LON)") || exit 1
+setenv GP_LAT_KM "$lat_km"; setenv GP_LON_KM "$lon_km"
 # Telegraf (Home Assistant + Open-Meteo) only when Home Assistant is configured: weather is optional.
 if [[ -n $(get GP_HA_URL) && -n $(get GP_HA_TOKEN) ]]; then setenv COMPOSE_PROFILES weather; else setenv COMPOSE_PROFILES ''; fi
 setenv GP_HOST "$3"; setenv TRAEFIK_NETWORK "$4"

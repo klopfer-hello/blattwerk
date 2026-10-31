@@ -32,7 +32,6 @@ export function Calendar() {
           <button className="btn small" aria-label="Nächstes Jahr" disabled={year >= 2100} onClick={() => setYear(year + 1)}>›</button>
         </div>
       </header>
-      <span className="tiny">An die Jahreszeit gekoppelte Aufgaben stehen hier in ihren Rückfall-Monaten; den genauen Termin zeigt „Heute“.</span>
       {error && <p className="box" role="alert">{error}</p>}
 
       {wide && months && <YearGrid months={months} thisMonth={thisMonth} />}

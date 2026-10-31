@@ -2,7 +2,7 @@
 // iPhone/iPad only support push for apps added to the home screen (iOS 16.4+).
 import { api } from './api';
 
-export type PushState = 'unsupported' | 'ios-install' | 'denied' | 'off' | 'on' | 'no-key';
+export type PushState = 'unsupported' | 'ios-install' | 'denied' | 'off' | 'on' | 'no-key' | 'stale';
 
 // iPadOS reports a Mac user agent; a Mac with a touch screen is an iPad.
 const isIos = () => /iPad|iPhone|iPod/.test(navigator.userAgent) || (/Macintosh/.test(navigator.userAgent) && navigator.maxTouchPoints > 1);
@@ -17,12 +17,22 @@ async function registration(): Promise<ServiceWorkerRegistration | null> {
   return navigator.serviceWorker.ready;
 }
 
-export async function pushState(): Promise<PushState> {
+/** `key`: the server's current public key. A subscription made with another key (the server's
+ *  keys were regenerated) no longer receives anything: 'stale', to be switched on again. */
+export async function pushState(key?: string | null): Promise<PushState> {
   if (isIos() && !standalone()) return 'ios-install';
   if (!('PushManager' in window) || !('Notification' in window) || !('serviceWorker' in navigator)) return 'unsupported';
   if (Notification.permission === 'denied') return 'denied';
   const reg = await registration();
-  return (await reg?.pushManager.getSubscription()) ? 'on' : 'off';
+  const sub = await reg?.pushManager.getSubscription();
+  if (!sub) return 'off';
+  const used = sub.options?.applicationServerKey;
+  if (key && used && !sameBytes(new Uint8Array(used), keyBytes(key))) return 'stale';
+  return 'on';
+}
+
+function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
+  return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
 function keyBytes(b64url: string): Uint8Array {
@@ -46,7 +56,16 @@ export async function enablePush(key: string | null): Promise<PushState> {
   if ((await permission) !== 'granted') return 'denied';
   const reg = await registration();
   if (!reg) return 'unsupported';
-  const sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+  const old = await reg.pushManager.getSubscription();
+  const oldKey = old?.options?.applicationServerKey ?? null;
+  await old?.unsubscribe();  // a subscription with other keys must go first (the browser allows one)
+  let sub: PushSubscription;
+  try {
+    sub = await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: keyBytes(key) });
+  } catch (e) {  // put the old one back rather than leaving the device without any
+    if (oldKey) await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: oldKey }).catch(() => undefined);
+    throw e;
+  }
   const json = sub.toJSON();
   await api.pushSubscribe({ endpoint: sub.endpoint, keys: { p256dh: json.keys?.p256dh ?? '', auth: json.keys?.auth ?? '' }, label: deviceLabel() });
   return 'on';

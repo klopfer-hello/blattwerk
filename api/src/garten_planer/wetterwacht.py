@@ -19,6 +19,7 @@ from typing import Any
 
 import httpx
 from sqlalchemy import delete, func, select, update
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from garten_planer import alerts
@@ -26,7 +27,7 @@ from garten_planer.alerts import Action, Event, Hour, PlantInfo
 from garten_planer.config import Config
 from garten_planer.influx import Influx, InfluxError, from_config
 from garten_planer.routes.todos import TZ, materialize
-from garten_planer.schema import plants, push_subs, species, standorte, tasks, todos, weather_alerts
+from garten_planer.schema import kv, plants, push_subs, species, standorte, tasks, todos, weather_alerts
 from garten_planer.season_dates import late_frost_from, safe_phase_starts
 from garten_planer.worker import _settings, enqueue
 
@@ -289,6 +290,33 @@ async def active_alerts(c: AsyncConnection, today: date) -> list[dict[str, Any]]
     ]  # fmt: skip
 
 
+SENSORS_SILENT = timedelta(hours=6)  # no Home Assistant value this long: the feed is broken, not a hiccup
+SILENT_PUSH_EVERY = timedelta(hours=24)
+
+
+async def check_sensor_feed(engine: AsyncEngine, db: Influx, now: datetime) -> bool:
+    """Push once a day while the garden's sensors are silent (ticket 033); True when pushed."""
+    rows = await db.query("SELECT max(time) AS last FROM ha WHERE time > now() - INTERVAL '30 days'")
+    last = rows[0].get("last") if rows else None
+    if not last:  # no sensors yet (no Home Assistant, or Telegraf just set up): nothing to watch
+        return False
+    since = _utc(last)
+    if now - since < SENSORS_SILENT:
+        return False
+    async with engine.begin() as c:
+        done = (await c.execute(select(kv.c.value).where(kv.c.key == "sensors_silent_push"))).scalar()
+        if done and now - datetime.fromisoformat(done["at"]) < SILENT_PUSH_EVERY:
+            return False
+        when = since.astimezone(TZ).strftime("%d.%m. %H:%M")
+        on = (await _settings(c)).notifications.weather_push
+        body = f"Keine Messwerte aus dem Garten seit {when}. Home Assistant oder Telegraf prüfen."
+        if not await _push(c, on, "Wetterdaten fehlen", body):
+            return False
+        stmt = pg_insert(kv).values(key="sensors_silent_push", value={"at": now.isoformat()})
+        await c.execute(stmt.on_conflict_do_update(index_elements=["key"], set_={"value": stmt.excluded.value}))
+    return True
+
+
 # ----- process ---------------------------------------------------------------------------------
 
 
@@ -310,6 +338,8 @@ async def main() -> None:
                 if not fc:
                     log.warning("no fresh forecast: no new alerts this round")
                 counts = await run_once(engine, fc, now)
+                if await check_sensor_feed(engine, db, now):
+                    log.warning("garden sensors silent: pushed")
                 if any(counts.values()):
                     log.info("alerts: %s", counts)
                 alive = True

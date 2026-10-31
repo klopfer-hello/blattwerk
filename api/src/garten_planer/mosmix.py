@@ -136,9 +136,15 @@ def read_kmz(data: bytes) -> bytes:
     return kml
 
 
-async def stations_near(lat: float, lon: float, count: int = 3) -> list[Station]:
+def _client(transport: httpx.AsyncBaseTransport | None = None) -> httpx.AsyncClient:
+    return httpx.AsyncClient(timeout=30, follow_redirects=False, transport=transport)
+
+
+async def stations_near(
+    lat: float, lon: float, count: int = 3, transport: httpx.AsyncBaseTransport | None = None
+) -> list[Station]:
     """The nearest few: a station in the catalog may have no MOSMIX_L file (404), then the next one is used."""
-    async with httpx.AsyncClient(timeout=30, follow_redirects=False) as c:
+    async with _client(transport) as c:
         r = await c.get(CATALOG_URL)
         r.raise_for_status()
     if len(r.content) > MAX_CATALOG:
@@ -146,9 +152,11 @@ async def stations_near(lat: float, lon: float, count: int = 3) -> list[Station]
     return by_distance(parse_catalog(r.text), lat, lon)[:count]
 
 
-async def fetch(influx: Influx, stations: list[Station]) -> tuple[Station, int]:
+async def fetch(
+    influx: Influx, stations: list[Station], transport: httpx.AsyncBaseTransport | None = None
+) -> tuple[Station, int]:
     """Latest forecast of the first station that has one; returns it and the number of hours written."""
-    async with httpx.AsyncClient(timeout=30, follow_redirects=False) as c:
+    async with _client(transport) as c:
         for station in stations:
             r = await c.get(KMZ_URL.format(id=station.id))
             if r.status_code == 404:

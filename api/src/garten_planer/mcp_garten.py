@@ -65,7 +65,7 @@ def build() -> Any:
 
     @server.tool(description="Aufgaben dieses Monats: offen (fällig, dringend, überfällig) und erledigt.")
     async def aufgaben() -> dict[str, Any]:
-        return await _write(gt.aufgaben, _today())  # Heute's list creates due occurrences first
+        return await _read(gt.aufgaben, _today())
 
     @server.tool(description="Phänologische Jahreszeit: aktuelle Phase, Verspätung gegen das Mittel, nächste Phasen.")
     async def jahreszeit() -> dict[str, Any]:

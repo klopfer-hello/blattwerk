@@ -268,3 +268,29 @@ def test_retired_plan_tasks_are_hidden_and_cannot_be_enabled(client: TestClient)
     with_retired = client.get("/api/tasks", params={"plant_id": pid, "retired": True}).json()
     old = next(t for t in with_retired if not t["enabled"])
     assert client.post(f"/api/tasks/{old['id']}/enable", headers=H).status_code == 409
+
+
+# ----- ticket 027 ------------------------------------------------------------------------------------
+
+
+def test_watering_sentences_are_taken_out_of_the_instructions() -> None:
+    tasks = answer()["tasks"]
+    tasks[2] |= {
+        "instructions": "Hornspäne einarbeiten. Danach gut angießen. Mulchen.",
+        "why": "Austrieb. Gießen hilft.",
+    }
+    t = sanitize(answer(tasks=tasks)).tasks[2]
+    assert t.instructions == "Hornspäne einarbeiten. Mulchen." and t.why == "Austrieb."
+
+
+def test_a_paused_plan_task_stays_paused_in_the_next_plan(client: TestClient) -> None:
+    pid = hedge(client)
+    client.post(f"/api/plants/{pid}/plan", headers=H)
+    work(fake(answer()))
+    tasks = client.get("/api/tasks", params={"plant_id": pid}).json()
+    paused = next(t for t in tasks if t["title"] == "Organisch düngen")
+    client.post(f"/api/tasks/{paused['id']}/disable", headers=H)
+    client.post(f"/api/plants/{pid}/plan", headers=H)
+    work(fake(answer()))
+    now_ = {t["title"]: t["enabled"] for t in client.get("/api/tasks", params={"plant_id": pid}).json()}
+    assert now_ == {"Hecke in Form schneiden": True, "Hecke stark verjüngen": True, "Organisch düngen": False}

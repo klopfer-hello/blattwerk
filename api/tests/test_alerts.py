@@ -290,3 +290,34 @@ def test_due_date_stays_in_this_month() -> None:
 
 def test_alerts_endpoint(client: TestClient) -> None:
     assert client.get("/api/alerts").json() == []
+
+
+def test_silent_sensors_push_once_a_day(client: TestClient, db: Engine) -> None:
+    from garten_planer.wetterwacht import check_sensor_feed
+
+    setup_garden(client)
+
+    class Fake:
+        def __init__(self, last: str | None) -> None:
+            self.last = last
+
+        async def query(self, sql: str) -> list[dict[str, object]]:
+            return [{"last": self.last}]
+
+    def check(last: str | None, now: datetime) -> bool:
+        async def go() -> bool:
+            engine = create_async_engine(DATABASE_URL)
+            try:
+                return await check_sensor_feed(engine, Fake(last), now)  # type: ignore[arg-type]
+            finally:
+                await engine.dispose()
+
+        return asyncio.run(go())
+
+    now = at(2026, 11, 2, 12)
+    assert check("2026-11-02T10:00:00", now) is False  # fresh
+    assert check("2026-11-02T01:00:00", now) is True  # 11 h silent
+    assert check("2026-11-02T01:00:00", now + timedelta(hours=3)) is False  # once a day
+    assert check("2026-11-02T01:00:00", now + timedelta(hours=25)) is True  # still silent a day later
+    assert check(None, now) is False  # never had sensors: nothing to watch
+    assert count(db, "SELECT count(*) FROM push_messages") == 2

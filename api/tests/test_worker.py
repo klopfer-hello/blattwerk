@@ -109,3 +109,44 @@ def test_old_outbox_entries_are_cleaned_up(client: TestClient, db: Engine) -> No
 
     run(send_pending, never)
     assert outbox(db) == []
+
+
+def test_a_device_refusing_our_key_is_dropped_after_three_periods(client: TestClient, db: Engine) -> None:
+    client.post("/api/push/subscriptions", json=sub(FCM + "-oldkey"), headers=H)
+    client.post("/api/push/test", json={"endpoint": FCM + "-oldkey"}, headers=H)
+
+    async def fake(endpoint: str, keys: dict[str, str], payload: str) -> int:
+        return 403  # e.g. the server's push keys were regenerated
+
+    for left in (1, 1, 0):  # the message is retried; each refusal falls into a new period here
+        run(send_pending, fake)
+        with db.begin() as c:
+            assert c.execute(text("SELECT count(*) FROM push_subs")).scalar() == left
+            c.execute(text("UPDATE push_subs SET auth_failed_at = auth_failed_at - interval '7 hours'"))
+
+
+def test_several_messages_in_one_outage_count_once(client: TestClient, db: Engine) -> None:
+    client.post("/api/push/subscriptions", json=sub(FCM + "-flaky403"), headers=H)
+    for _ in range(3):
+        client.post("/api/push/test", json={"endpoint": FCM + "-flaky403"}, headers=H)
+
+    async def fake(endpoint: str, keys: dict[str, str], payload: str) -> int:
+        return 403
+
+    run(send_pending, fake)  # three refusals in one run: one period
+    with db.connect() as c:
+        assert c.execute(text("SELECT auth_failures FROM push_subs")).scalar() == 1
+
+
+def test_another_answer_resets_the_refusal_count(client: TestClient, db: Engine) -> None:
+    client.post("/api/push/subscriptions", json=sub(FCM + "-x"), headers=H)
+    with db.begin() as c:
+        c.execute(text("UPDATE push_subs SET auth_failures = 2, auth_failed_at = now() - interval '1 day'"))
+    client.post("/api/push/test", json={"endpoint": FCM + "-x"}, headers=H)
+
+    async def fake(endpoint: str, keys: dict[str, str], payload: str) -> int:
+        return 503
+
+    run(send_pending, fake)
+    with db.connect() as c:
+        assert c.execute(text("SELECT auth_failures FROM push_subs")).scalar() == 0

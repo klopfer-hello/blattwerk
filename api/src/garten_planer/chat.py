@@ -28,6 +28,17 @@ def build_prompt(history: list[tuple[str, str]], question: str) -> str:
     return f"{prior}Neue Frage des Nutzers:\n{question}"
 
 
+NARRATION = 120  # a turn this short before a tool call is "Ich schaue nach …", not part of the answer
+
+
+def final_answer(text: str, mark: str) -> str:
+    """The stored answer: every turn with substance plus the last one; short narration before
+    a tool call is left out (the answer often comes first, then a proposal, then "steht bereit")."""
+    turns = [t.strip() for t in text.split(mark)]
+    keep = [t for i, t in enumerate(turns) if t and (i == len(turns) - 1 or len(t) >= NARRATION)]
+    return "\n\n".join(keep).strip()
+
+
 def parse_event(e: dict[str, Any]) -> tuple[str, Any] | None:
     """One line of `claude -p --output-format stream-json --include-partial-messages`:
     ("text", delta), ("turn", "") when a new assistant message starts (after a tool call),

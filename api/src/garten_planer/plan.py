@@ -206,6 +206,14 @@ def build_prompt(f: PlanFacts) -> str:
     return "Erstelle den Pflegeplan für diese Pflanze:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
 
+SENTENCE = re.compile(r"(?<=[.!?])\s+")
+
+
+def dry(text: str) -> str:
+    """Without the sentences that tell to water (F-CP-6: the app never asks for watering)."""
+    return " ".join(s for s in SENTENCE.split(text.strip()) if s and not WATERING.search(s))
+
+
 def _products(raw: Any) -> list[dict[str, Any]]:
     out = []
     for p in raw if isinstance(raw, list) else []:
@@ -258,8 +266,8 @@ def sanitize(raw: dict[str, Any]) -> Plan:
                     {
                         **fields,
                         "cut_type": cut,
-                        "instructions": str(t.get("instructions") or "")[:4000],
-                        "why": str(t.get("why") or "")[:300],
+                        "instructions": dry(str(t.get("instructions") or ""))[:4000],
+                        "why": dry(str(t.get("why") or ""))[:300],
                         "products": _products(t.get("products")),
                     }
                 )
@@ -290,13 +298,15 @@ async def apply_plan(c: AsyncConnection, plant_id: str, plan: Plan, info: dict[s
             dropped=plan.dropped,
         )
     )
-    old = list(
-        (
-            await c.execute(
-                select(tasks.c.id).where(tasks.c.plant_id == plant_id, tasks.c.source == "plan", ~tasks.c.retired)
+    previous = (
+        await c.execute(
+            select(tasks.c.id, tasks.c.title, tasks.c.enabled).where(
+                tasks.c.plant_id == plant_id, tasks.c.source == "plan", ~tasks.c.retired
             )
-        ).scalars()
-    )
+        )
+    ).all()
+    old = [r.id for r in previous]
+    paused = {r.title.casefold() for r in previous if not r.enabled}  # the user's pause carries over by title
     if old:  # retire the previous plan: open occurrences go, done ones stay as history
         await c.execute(update(tasks).where(tasks.c.id.in_(old)).values(enabled=False, retired=True, updated_at=stamp))
         await c.execute(delete(todos).where(todos.c.task_id.in_(old), todos.c.status == "open"))
@@ -313,7 +323,7 @@ async def apply_plan(c: AsyncConnection, plant_id: str, plan: Plan, info: dict[s
                 plan_id=plan_id,
                 products=t.products,
                 why=t.why,
-                enabled=True,
+                enabled=t.title.casefold() not in paused,
                 generation=1,
                 created_at=stamp,
                 updated_at=stamp,

@@ -171,6 +171,7 @@ const PUSH_TEXT: Record<PushState, string> = {
   'ios-install': 'Auf dem iPhone geht Push nur, wenn die App auf dem Home-Bildschirm liegt: Teilen → „Zum Home-Bildschirm“, dann von dort öffnen.',
   unsupported: 'Dieser Browser kann keine Push-Nachrichten.',
   'no-key': 'Push ist auf dem Server noch nicht eingerichtet.',
+  stale: 'Push ist auf diesem Gerät veraltet (die Schlüssel des Servers haben sich geändert) und kommt nicht mehr an.',
 };
 
 function DevicePush() {
@@ -179,8 +180,8 @@ function DevicePush() {
   const [info, setInfo] = useState('');
   const [key, setKey] = useState<string | null>(null);
   useEffect(() => {
-    pushState().then(setState, () => setState('unsupported'));
-    pushKey().then(setKey, () => setKey(null));
+    pushKey().then((k) => { setKey(k); return pushState(k); }, () => { setKey(null); return pushState(); })
+      .then(setState, () => setState('unsupported'));
   }, []);
   async function run(f: () => Promise<PushState | void>, done?: string) {
     if (busy) return;
@@ -193,7 +194,8 @@ function DevicePush() {
     <section className="outline stack" style={{ gap: 10 }}>
       <h2 style={{ fontSize: 17 }}>Dieses Gerät</h2>
       <span className="small">{state ? PUSH_TEXT[state] : 'Prüfe …'}</span>
-      {state === 'off' && <button className="btn primary" disabled={busy} onClick={() => run(() => enablePush(key))}>Push auf diesem Gerät aktivieren</button>}
+      {(state === 'off' || state === 'stale') && <button className="btn primary" disabled={busy} onClick={() => run(() => enablePush(key))}>{state === 'stale' ? 'Push neu einschalten' : 'Push auf diesem Gerät aktivieren'}</button>}
+      {state === 'stale' && <button className="btn" disabled={busy} onClick={() => run(disablePush)}>Ausschalten</button>}
       {state === 'on' && (
         <div className="grid2">
           <button className="btn" disabled={busy} onClick={() => run(testPush, 'Test-Nachricht ist unterwegs (kann bis zu einer Minute dauern).')}>Test senden</button>

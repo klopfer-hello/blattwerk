@@ -5,6 +5,7 @@
 #   ./backup.sh create [label]        pg_dump -Fc → backups/garten-planer-<time>[-label].dump
 #   ./backup.sh list
 #   ./backup.sh restore <file> --yes  safety backup first, api stopped while restoring
+#   ./backup.sh restore-weather <file> --yes   InfluxDB data (weather history) from a create run
 # pg_dump/pg_restore run inside the db container over its local socket: no
 # password on any command line, no extra tools container.
 set -euo pipefail
@@ -25,10 +26,44 @@ create() {
   (umask 077; docker exec garten-planer-db pg_dump -U "$USER" -d "$DB" -Fc > "$file.tmp")
   [[ -s $file.tmp ]] || { rm -f "$file.tmp"; echo "backup is empty: aborted" >&2; exit 1; }
   mv "$file.tmp" "$file"
+  weather "$name" || true
   ls -1t backups/garten-planer-*.dump | grep -vxF "${PROTECT:-}" | tail -n +$((KEEP + 1)) | xargs -r rm -f
   echo "created $file ($(du -h "$file" | cut -f1))"
 }
 
+influx_volume() {   # the volume compose actually created (its name follows the stack directory)
+  docker inspect -f '{{range .Mounts}}{{if eq .Destination "/var/lib/influxdb3"}}{{.Name}}{{end}}{{end}}' \
+    garten-planer-influxdb 2>/dev/null
+}
+weather() {   # InfluxDB data as tar.gz; best effort: never fails the database backup
+  local vol img out="backups/weather-$1.tar.gz"
+  vol=$(influx_volume) && [[ -n $vol ]] || return 0   # no weather stack: nothing to do
+  img=$(docker inspect -f '{{.Config.Image}}' garten-planer-influxdb)
+  docker stop garten-planer-influxdb >/dev/null   # a consistent copy (a few seconds; Telegraf buffers)
+  if (umask 077; docker run --rm --network none -v "$vol:/data:ro" --entrypoint tar "$img" czf - -C /data . > "$out.tmp"); then
+    mv "$out.tmp" "$out"
+    echo "created $out ($(du -h "$out" | cut -f1))"
+  else
+    rm -f "$out.tmp"
+    echo "weather backup failed (database backup is fine)" >&2
+  fi
+  docker start garten-planer-influxdb >/dev/null
+  ls -1t backups/weather-*.tar.gz 2>/dev/null | grep -vxF "${PROTECT:-}" | tail -n +$((KEEP + 1)) | xargs -r rm -f
+}
+restore_weather() {
+  local file=${1:-} vol img
+  [[ -f $file && $file == *.tar.gz ]] || { echo "usage: $0 restore-weather backups/weather-<time>.tar.gz --yes" >&2; exit 2; }
+  [[ ${2:-} == --yes ]] || { echo "replaces the weather history with $file: add --yes" >&2; exit 2; }
+  tar tzf "$file" >/dev/null || { echo "$file is not a readable archive: nothing changed" >&2; exit 1; }
+  vol=$(influx_volume) && [[ -n $vol ]] || { echo "no InfluxDB container/volume found: nothing changed" >&2; exit 1; }
+  img=$(docker inspect -f '{{.Config.Image}}' garten-planer-influxdb)
+  PROTECT=$file weather pre-restore   # safety copy first
+  docker stop garten-planer-influxdb >/dev/null
+  docker run --rm -i --network none --user 0 -v "$vol:/data" --entrypoint sh "$img" -c \
+    'find /data -mindepth 1 -delete && tar xzf - -C /data && chown -R 1500:1500 /data' < "$file"
+  docker start garten-planer-influxdb >/dev/null || { echo "influxdb did not start" >&2; exit 1; }
+  echo "restored $file"
+}
 restore() {
   local file=${1:-}
   [[ -f $file && $file == *.dump ]] || { echo "usage: $0 restore backups/<file>.dump --yes" >&2; exit 2; }
@@ -57,5 +92,6 @@ case ${1:-} in
   create) create "${2:-}" ;;
   list) ls -lh backups/ | tail -n +2 ;;
   restore) restore "${2:-}" "${3:-}" ;;
-  *) echo "usage: $0 create [label] | list | restore <file> --yes" >&2; exit 2 ;;
+  restore-weather) restore_weather "${2:-}" "${3:-}" ;;
+  *) echo "usage: $0 create [label] | list | restore <file> --yes | restore-weather <file> --yes" >&2; exit 2 ;;
 esac

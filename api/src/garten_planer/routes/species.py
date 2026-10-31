@@ -8,14 +8,14 @@ from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request, Response
 from fastapi.concurrency import run_in_threadpool
-from sqlalchemy import insert, select
+from sqlalchemy import insert, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.exc import IntegrityError
 
 from garten_planer.catalog import invalidate, ready
 from garten_planer.db import Conn, get_engine
 from garten_planer.errors import ApiError, constraint_of, not_found
-from garten_planer.models import CultivarIn, SpeciesIn
+from garten_planer.models import CultivarIn, SpeciesIn, SpeciesTraits
 from garten_planer.resolver import Catalog, cultivar_id, fold, resolve
 from garten_planer.schema import cultivars, species
 
@@ -56,6 +56,22 @@ async def create_species(body: SpeciesIn, request: Request) -> dict[str, Any]:
         raise
     invalidate(request)
     return values
+
+
+@router.put("/species/{sid}")
+async def update_species(sid: str, body: SpeciesTraits, request: Request) -> dict[str, Any]:
+    """Only species the app added (source "user"): German names, growth, woody. Seed species
+    are reviewed data and stay as they are."""
+    async with get_engine(request).begin() as c:
+        row = (await c.execute(select(species.c.source).where(species.c.id == sid).with_for_update())).first()
+        if row is None:
+            raise not_found("species")
+        if row.source != "user":
+            raise ApiError(409, "built-in species cannot be changed")
+        await c.execute(update(species).where(species.c.id == sid).values(**body.model_dump()))
+        out = (await c.execute(select(species).where(species.c.id == sid))).one()
+    invalidate(request)
+    return dict(out._asdict())
 
 
 @router.post("/species/{sid}/cultivars", status_code=201)

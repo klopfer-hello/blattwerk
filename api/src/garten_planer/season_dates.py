@@ -8,7 +8,7 @@ reports; otherwise the expected date (normal + current delay); other years the n
 Nothing known -> no date -> the task's month window."""
 
 import logging
-from datetime import date, timedelta
+from datetime import date
 from typing import Any
 
 from sqlalchemy import select
@@ -38,9 +38,10 @@ async def season_core(c: AsyncConnection, today: date) -> dict[str, Any]:
     return state
 
 
-def _same_doy(normal: date, year: int) -> date:
-    """The normal is a day of year (pheno._from_doy): keep it one, also across leap years."""
-    return date(year, 1, 1) + timedelta(days=normal.timetuple().tm_yday - 1)
+def _same_doy(normal: date, ref: int, year: int) -> date:
+    """The normal is days from 1 January of its reference year `ref` (may be <= 0 for a December
+    hazel): the same offset from 1 January of `year`."""
+    return date(year, 1, 1) + (normal - date(ref, 1, 1))
 
 
 async def phase_starts(c: AsyncConnection, today: date) -> dict[tuple[int, str], date]:
@@ -54,7 +55,7 @@ async def phase_starts(c: AsyncConnection, today: date) -> dict[tuple[int, str],
         if p["normal"]:
             normal = date.fromisoformat(p["normal"])
             for y in (today.year - 1, today.year + 1):
-                out[(y, p["key"])] = _same_doy(normal, y)
+                out[(y, p["key"])] = _same_doy(normal, today.year, y)
     for key, e in (await best_events(c, today.year - 1)).items():  # last year: what really happened
         if e["source"] == "garten" or e["reports"] >= pheno.MIN_DWD_REPORTS:
             out[(today.year - 1, key)] = e["day"]

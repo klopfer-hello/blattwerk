@@ -218,6 +218,8 @@ push_subs = Table(  # one row per device that allowed push (personal data: volum
     Column("label", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("last_ok_at", DateTime(timezone=True)),
+    Column("auth_failures", Integer, nullable=False, server_default="0"),  # 401/403 periods in a row (old keys)
+    Column("auth_failed_at", DateTime(timezone=True)),  # when the last counted 401/403 came
 )
 
 push_messages = Table(  # outbox: the api writes, the worker (only one with internet) sends

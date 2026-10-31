@@ -21,6 +21,27 @@ def upgrade(url: str) -> None:
     command.upgrade(alembic_config(url), "head")
 
 
+def set_mcp_password(url: str, password: str) -> None:
+    """Let the chat tools' role log in with the password from the host .env (every deploy,
+    so a changed password takes effect). The statement is built with psycopg's literal
+    quoting: ALTER ROLE takes no bind parameters."""
+    from psycopg import sql
+    from sqlalchemy import create_engine
+
+    engine = create_engine(url)
+    try:
+        with engine.begin() as c:
+            stmt = sql.SQL("ALTER ROLE garten_mcp LOGIN PASSWORD {}").format(sql.Literal(password))
+            raw = stmt.as_string(c.connection.dbapi_connection)  # type: ignore[arg-type]
+            c.exec_driver_sql(raw.replace("%", "%%"))  # the driver reads % as a placeholder
+    finally:
+        engine.dispose()
+
+
 if __name__ == "__main__":
-    upgrade(Config().database_url.get_secret_value())
+    cfg = Config()
+    upgrade(cfg.database_url.get_secret_value())
     print("migrations: at head")
+    if pw := cfg.mcp_db_password.get_secret_value():
+        set_mcp_password(cfg.database_url.get_secret_value(), pw)
+        print("chat role: password set")

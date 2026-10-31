@@ -177,6 +177,14 @@ class SpeciesIn(Strict):
     woody: bool
 
 
+class SpeciesTraits(Strict):
+    """What can be corrected on a species the app added (§ 39 and the alerts depend on it)."""
+
+    german: Annotated[list[Name60], Field(min_length=1, max_length=5)]
+    growth: Growth
+    woody: bool
+
+
 class CultivarIn(Strict):
     name: Name60
 

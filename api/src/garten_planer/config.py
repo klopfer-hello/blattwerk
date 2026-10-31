@@ -26,6 +26,7 @@ class Config(BaseSettings):
     name_daily_limit: int = 100
     chat_daily_limit: int = 150  # chat answers per day
     chat_budget_usd: float = 0.30  # per answer
+    mcp_db_password: SecretStr = SecretStr("")  # the chat tools' own role (ticket 034), from the host .env
     # Weather (M6). Coordinates and HA entities live only in the host's .env.
     influx_url: str = "http://influxdb:8181"
     influx_token: SecretStr = SecretStr("")

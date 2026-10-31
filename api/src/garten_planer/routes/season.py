@@ -71,7 +71,12 @@ async def observe(body: Observation, c: Conn) -> dict[str, Any]:
     if pheno.implausible(body.phase, body.day, norm):
         raise ApiError(422, "observation far from the phase's usual time", {"day": "implausible"})
     stmt = pg_insert(pheno_events).values(
-        year=body.day.year, phase=body.phase, source="garten", day=body.day, reports=1, updated_at=datetime.now(UTC)
+        year=pheno.reference_year(body.phase, body.day),
+        phase=body.phase,
+        source="garten",
+        day=body.day,
+        reports=1,
+        updated_at=datetime.now(UTC),
     )
     await c.execute(
         stmt.on_conflict_do_update(

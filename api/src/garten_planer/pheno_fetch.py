@@ -121,13 +121,18 @@ async def update_normals(engine: AsyncEngine, lat: float, lon: float) -> int:
     await _kv(
         engine, "pheno_normals_job", {"region": region, "attempt_at": datetime.now(UTC).isoformat(), "done": False}
     )
-    written = 0
+    written, failed = 0, 0
     async with _client() as c:
         stations = pheno.region(pheno.parse_stations(await _text(c, pheno.STATIONS_ANNUAL)), lat, lon)
         for prefix in sorted({p.annual for p in pheno.PHASES}):
             keys = {p.key for p in pheno.PHASES if p.annual == prefix}
-            url = await _latest_hist(c, prefix)
-            reports = [r async for r in _region_reports(_lines(c, url), stations) if r.phase in keys]
+            try:
+                url = await _latest_hist(c, prefix)
+                reports = [r async for r in _region_reports(_lines(c, url), stations) if r.phase in keys]
+            except (httpx.HTTPError, ValueError) as e:  # this plant later (back-off), the others now
+                failed += 1
+                log.warning("phenology normals file failed: %s", type(e).__name__)
+                continue
             stamp = datetime.now(UTC)
             async with engine.begin() as conn:
                 for phase, (doy, n) in pheno.normals(reports, stations).items():
@@ -136,9 +141,8 @@ async def update_normals(engine: AsyncEngine, lat: float, lon: float) -> int:
                         index_elements=["phase"], set_={"doy": doy, "stations": n, "computed_at": stamp},
                     ))  # fmt: skip
                     written += 1
-    await _kv(
-        engine, "pheno_normals_job", {"region": region, "attempt_at": datetime.now(UTC).isoformat(), "done": True}
-    )
+    done = {"region": region, "attempt_at": datetime.now(UTC).isoformat(), "done": failed == 0}
+    await _kv(engine, "pheno_normals_job", done)
     return written
 
 

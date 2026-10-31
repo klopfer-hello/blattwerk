@@ -397,6 +397,11 @@ async def heute(c: Conn, day: Today) -> dict[str, Any]:
     """Open to-dos due up to the end of this month (newest per task; overdue, then
     urgent first) and what was done or skipped this month (newest first)."""
     await materialize(c, day)
+    return await month_list(c, day)
+
+
+async def month_list(c: AsyncConnection, day: date) -> dict[str, Any]:
+    """Heute's list as stored (no new occurrences): also for the chat's read-only role."""
     first, last = _month(day)
     open_rows = await c.execute(
         _todo_query.where(todos.c.status == "open", todos.c.due_from <= last, tasks.c.enabled, _active).order_by(
@@ -520,13 +525,17 @@ async def postpone(todo_id: str, body: PostponeIn, c: Conn, day: Today) -> dict[
 @router.get("/calendar")
 async def calendar_year(c: Conn, year: Annotated[int, Query(ge=2000, le=2100)]) -> dict[str, Any]:
     """Enabled tasks of active plants projected onto the months of `year` (not stored)."""
-    rows = await c.execute(
+    result = await c.execute(
         select(tasks, _plant_title, *FACTS)
         .select_from(_plant_join)
         .where(tasks.c.enabled, _active)
         .order_by(tasks.c.title)
     )
+    rows = result.all()
     s = await legal_settings(c)
+    today = datetime.now(TZ).date()
+    near = abs(year - today.year) <= 1  # phase dates exist for last, this and next year
+    starts = await safe_phase_starts(c, today) if near and any(r.pheno_phase for r in rows) else {}
     months: list[list[dict[str, Any]]] = [[] for _ in range(12)]
     for r in rows:
         entry = {
@@ -537,7 +546,12 @@ async def calendar_year(c: Conn, year: Annotated[int, Query(ge=2000, le=2100)]) 
             "plant": {"id": r.plant_id, "title": r.plant_title} if r.plant_id else None,
         }
         found = months_in_year(_timing(r), year)
-        if r.recurrence == "yearly" and r.month_from > r.month_to:  # window order: Nov, Dec, Jan, Feb
+        spans = [yearly_span(_timing(r), y, {y: d}.get) for y in (year - 1, year)
+                 if r.pheno_phase and (d := starts.get((y, r.pheno_phase))) is not None]  # fmt: skip
+        if spans:  # the season's windows reaching into this year, not the fallback months (ticket 033)
+            found = sorted({(a + timedelta(days=i)).month for a, b in spans for i in range((b - a).days + 1)
+                            if (a + timedelta(days=i)).year == year})  # fmt: skip
+        elif r.recurrence == "yearly" and r.month_from > r.month_to:  # window order: Nov, Dec, Jan, Feb
             found = [m for m in found if m >= r.month_from] + [m for m in found if m < r.month_from]
         allowed, moved = allowed_months(r.category, r.cut_type, _facts(r), s, found)
         for m in allowed:

@@ -172,3 +172,12 @@ def test_bad_plan_trigger_drops_only_the_trigger() -> None:
     plan = sanitize(answer(tasks=tasks))
     assert len(plan.tasks) == 3 and plan.tasks[0].pheno_phase is None
     assert (plan.tasks[1].pheno_offset, plan.tasks[1].pheno_window) == (120, 1)
+
+
+def test_calendar_puts_a_season_task_into_its_phase_months(client: TestClient, db: Engine) -> None:
+    year = date.today().year
+    phase(db, "erstfruehling", date(year, 2, 20))  # an early spring: February, not the fallback March/April
+    rose_task(client)
+    months = client.get("/api/calendar", params={"year": year}).json()["months"]
+    found = [i + 1 for i, m in enumerate(months) if any(e["title"] == "Rosen schneiden" for e in m)]
+    assert found == [2, 3]  # 20.2. + 14 days

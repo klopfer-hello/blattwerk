@@ -192,3 +192,12 @@ def test_jobs_wait_until_the_cli_is_installed() -> None:
         return waiting
 
     assert asyncio.run(go())
+
+
+def test_user_species_can_be_corrected_seed_species_not(client: TestClient) -> None:
+    res = ask(client, "Maibeere Duet", {"candidates": [NEU]})
+    sid = client.post(f"/api/species/ai/{res['id']}/pick", json={"index": 0}, headers=H).json()["species_id"]
+    body = {"german": ["Maibeere", "Haskap"], "growth": "strauch", "woody": True}
+    r = client.put(f"/api/species/{sid}", json=body, headers=H)
+    assert r.status_code == 200 and r.json()["german"] == ["Maibeere", "Haskap"]
+    assert client.put("/api/species/malus-domestica", json=body, headers=H).status_code == 409

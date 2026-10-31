@@ -4,7 +4,7 @@
 // plants (links from the still-demo Heute/Kalender) render as DemoPlantDetail.
 import { useEffect, useRef, useState } from 'react';
 import {
-  ApiError, FORMS, STANDORT_TYPES, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
+  ApiError, FORMS, GROWTH, STANDORT_TYPES, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
   type PlanState, type Standort, type Task,
 } from '../api';
 import { MONTHS, plantById, standortById } from '../mock/data';
@@ -171,6 +171,7 @@ export function PlantDetail({ id }: { id: string }) {
         : <p className="box">Typische Schädlinge und Krankheiten stehen hier, sobald es einen Pflegeplan gibt.</p>)}
       {tab === 'history' && <p className="box">Der Verlauf (erledigte Aufgaben, Diagnosen) kommt in einem späteren Schritt.</p>}
       {p.species.woody && <span className="tiny">Gehölz: starke Rückschnitte nur 1.10.–28.2. (§ 39 BNatSchG).</span>}
+      <SpeciesTraitsBox id={p.species.id} onSaved={() => api.plant(id).then(setP, () => undefined)} />
     </div>
   );
 }
@@ -195,6 +196,7 @@ function CarePlanBox({ state, failed, archived, onMake, onReload }: {
           <div className="between"><strong>Pflegeplan</strong><span className="tiny">{deDay(plan.created_at)} · {CONFIDENCE[plan.confidence]}</span></div>
           <span>{plan.summary}</span>
           {plan.caveats && <span className="small muted">Hinweis: {plan.caveats}</span>}
+          {plan.prompt_version === 'plan-1' && <span className="small">Dieser Plan ist älter: neu erstellen, damit Termine der echten Jahreszeit folgen (z. B. „zur Forsythienblüte“).</span>}
           <span className="tiny">Erstellt von der KI und geprüft gegen die Regeln (§ 39 BNatSchG). Eigene Aufgaben bleiben beim Neu-Erstellen erhalten; bearbeitete Plan-Aufgaben werden zu eigenen.</span>
         </>
       )}
@@ -202,6 +204,48 @@ function CarePlanBox({ state, failed, archived, onMake, onReload }: {
       {running && <span>Die KI erstellt den Pflegeplan … das dauert etwa eine Minute. Du kannst die Seite verlassen.</span>}
       {job?.status === 'failed' && <span role="alert" style={{ color: 'var(--urgent)' }}>{job.error ?? 'Der Plan konnte nicht erstellt werden.'}</span>}
       {!archived && !running && <button className={plan ? 'btn' : 'btn primary'} onClick={onMake}>{plan ? 'Pflegeplan neu erstellen' : 'Pflegeplan erstellen'}</button>}
+    </div>
+  );
+}
+
+// Species the app added (AI name search) can be corrected: woodiness decides § 39 and the
+// alerts. Built-in species are reviewed data and are not offered here.
+function SpeciesTraitsBox({ id, onSaved }: { id: string; onSaved: () => void }) {
+  const [sp, setSp] = useState<Species | null>(null);
+  const [open, setOpen] = useState(false);
+  const [names, setNames] = useState('');
+  const [growth, setGrowth] = useState('strauch');
+  const [woody, setWoody] = useState(false);
+  const [msg, setMsg] = useState('');
+  useEffect(() => { api.species(id).then(setSp, () => undefined); }, [id]);
+  if (!sp || sp.source !== 'user') return null;
+  function start() { setNames(sp!.german.join(', ')); setGrowth(sp!.growth); setWoody(sp!.woody); setMsg(''); setOpen(true); }
+  async function save() {
+    const german = names.split(',').map((n) => n.trim()).filter(Boolean).slice(0, 5);
+    if (!german.length) { setMsg('Mindestens ein deutscher Name.'); return; }
+    try { setSp(await api.updateSpecies(id, { german, growth, woody })); setOpen(false); onSaved(); } catch { setMsg('Konnte nicht gespeichert werden.'); }
+  }
+  return (
+    <div className="box stack" style={{ gap: 8 }}>
+      <span className="small">Diese Art hat die KI angelegt: {GROWTH[sp.growth as keyof typeof GROWTH] ?? sp.growth}, {sp.woody ? 'Gehölz' : 'kein Gehölz'}. Bitte prüfen – davon hängen Schnittregeln (§ 39) und Frostwarnungen ab.</span>
+      {!open && <button className="btn" onClick={start}>Art-Angaben korrigieren</button>}
+      {open && (
+        <>
+          <div className="field"><label htmlFor="sp-names">Deutsche Namen (mit Komma)</label><input id="sp-names" className="input" maxLength={300} value={names} onChange={(e) => setNames(e.target.value)} /></div>
+          <div className="field">
+            <label htmlFor="sp-growth">Wuchs</label>
+            <select id="sp-growth" className="input" value={growth} onChange={(e) => setGrowth(e.target.value)}>
+              {Object.entries(GROWTH).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+            </select>
+          </div>
+          <div className="setrow" style={{ borderBottom: 0 }}>
+            <span id="sp-woody">Gehölz (verholzt: Baum, Strauch, Rose …)</span>
+            <button className="switch" role="switch" aria-checked={woody} aria-labelledby="sp-woody" onClick={() => setWoody(!woody)}><span /></button>
+          </div>
+          {msg && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{msg}</span>}
+          <div className="grid2"><button className="btn" onClick={() => setOpen(false)}>Abbrechen</button><button className="btn primary" onClick={save}>Speichern</button></div>
+        </>
+      )}
     </div>
   );
 }

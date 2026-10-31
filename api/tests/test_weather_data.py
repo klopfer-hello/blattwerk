@@ -241,3 +241,69 @@ def test_weather_route(client) -> None:  # type: ignore[no-untyped-def]
     assert client.get("/api/weather").json() == {"available": False, "alerts": []}
     client.app.dependency_overrides[get_influx] = lambda: None
     assert client.get("/api/weather").json() == {"available": False, "alerts": []}
+
+
+# ----- ticket 031: fetch paths, DST, init retry --------------------------------------------------------
+
+
+def _kmz() -> bytes:
+    import io
+    import zipfile
+
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w") as z:
+        z.writestr("MOSMIX_L.kml", SAMPLE)
+    return buf.getvalue()
+
+
+def test_fetch_takes_the_next_station_when_the_nearest_has_no_forecast() -> None:
+    written: list[str] = []
+
+    def dwd(r: httpx.Request) -> httpx.Response:
+        if "X1234" in r.url.path:
+            return httpx.Response(404)
+        return httpx.Response(200, content=_kmz())
+
+    def influx_handler(r: httpx.Request) -> httpx.Response:
+        written.extend(r.content.decode().splitlines())
+        return httpx.Response(204)
+
+    stations = [mosmix.Station("X1234", "NAH", 53.0, 9.4), mosmix.Station("10147", "WEITER", 53.6, 10.0)]
+    station, hours = run(mosmix.fetch(influx(influx_handler), stations, transport=httpx.MockTransport(dwd)))
+    assert station.id == "10147" and hours == 30 and len(written) == 30
+
+
+def test_catalog_download_finds_the_nearest() -> None:
+    def handler(r: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text=CATALOG)
+
+    got = run(mosmix.stations_near(54.4, 10.1, transport=httpx.MockTransport(handler)))
+    assert got[0].id == "10046"
+
+
+def test_days_are_local_days_across_the_dst_change() -> None:
+    now = datetime(2026, 10, 25, 1, tzinfo=TZ)  # the night the clocks go back (03:00 -> 02:00)
+    rows = [{"time": (now.astimezone(UTC) + timedelta(hours=h)).replace(tzinfo=None).isoformat(), "source": "dwd",
+             "t_air": float(h)} for h in range(0, 30)]  # fmt: skip
+    days = summarise([], rows, now, [{"source": "dwd", "fetched": now.timestamp()}])["days"]
+    assert [d["date"] for d in days] == ["2026-10-25", "2026-10-26"]
+    assert days[0]["t_max"] == 23.0  # 25 hours that day: 01:00 local + 23 h is still the 25th
+
+
+def test_influx_init_retries_until_the_database_answers(monkeypatch: pytest.MonkeyPatch) -> None:
+    from garten_planer import influx as influx_mod
+
+    calls = {"n": 0}
+
+    async def flaky(self: Influx, retention: str = "730d") -> None:
+        calls["n"] += 1
+        if calls["n"] < 3:
+            raise httpx.ConnectError("starting")
+
+    async def no_sleep(_s: float) -> None:
+        return None
+
+    monkeypatch.setenv("GP_INFLUX_TOKEN", "t")
+    monkeypatch.setattr(influx_mod.Influx, "ensure_database", flaky)
+    monkeypatch.setattr(influx_mod.asyncio, "sleep", no_sleep)
+    assert run(influx_mod._init()) == 0 and calls["n"] == 3

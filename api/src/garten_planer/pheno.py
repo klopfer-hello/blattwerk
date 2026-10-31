@@ -114,12 +114,16 @@ def region(stations: dict[str, tuple[float, float]], lat: float, lon: float) -> 
     return near if len(near) >= MIN_STATIONS else nearby(stations, lat, lon, WIDE_KM)
 
 
+def _year_ok(r: Report) -> bool:
+    return r.day.year == r.year or (r.phase in ("vorfruehling", "winter") and abs(r.day.year - r.year) == 1)
+
+
 def current(reports: list[Report], stations: set[str], year: int) -> dict[str, tuple[date, int]]:
     """Median entry date and number of reports per phase this year."""
     days: dict[str, list[date]] = defaultdict(list)
     for r in reports:
-        if r.year == year and r.station in stations and r.day.year == year:
-            days[r.phase].append(r.day)
+        if r.year == year and r.station in stations and _year_ok(r):
+            days[r.phase].append(r.day)  # the DWD reference year: a hazel blossoming in December counts for the next
     out = {}
     for key, ds in days.items():
         ordinals = sorted(d.toordinal() for d in ds)
@@ -131,8 +135,8 @@ def normals(reports: Iterable[Report], stations: set[str]) -> dict[str, tuple[in
     """Median day of year 1991-2020 per phase and the number of (station, year) values."""
     doys: dict[str, list[int]] = defaultdict(list)
     for r in reports:
-        if r.year in NORMAL_YEARS and r.station in stations and r.day.year == r.year:
-            doys[r.phase].append(r.day.timetuple().tm_yday)
+        if r.year in NORMAL_YEARS and r.station in stations and _year_ok(r):
+            doys[r.phase].append((r.day - date(r.year, 1, 1)).days + 1)  # December of the year before: <= 0
     return {k: (round(median(v)), len(v)) for k, v in doys.items()}
 
 
@@ -187,20 +191,21 @@ def season(
     cur: dict[str, Any] | None
     if started:
         k, e = max(started, key=lambda ke: (ke[1]["day"], KEYS.index(ke[0])))
-        cur = {"key": k, "since": e["day"], "source": e["source"], "reports": e["reports"]}
+        cur = {"key": k, "since": e["day"], "source": e["source"], "reports": e["reports"], "ref": year}
     elif last_winter is not None:
-        cur = {"key": "winter", "since": last_winter, "source": "dwd", "reports": 0}
+        cur = {"key": "winter", "since": last_winter, "source": "dwd", "reports": 0, "ref": year - 1}
     elif norm:  # no reports yet: the normal calendar
         before = [p.key for p in PHASES if p.key in norm and _from_doy(year, norm[p.key][0]) <= today]
         key = before[-1] if before else "winter"
         since = _from_doy(year if before else year - 1, norm[key][0]) if key in norm else None
-        cur = {"key": key, "since": since, "source": "mittel", "reports": 0} if since else None
+        cur = {"key": key, "since": since, "source": "mittel", "reports": 0, "ref": year} if since else None
     else:  # nothing known yet (first days after setup): better no season than a wrong one
         cur = None
     current = None
     if cur is not None:
         name = next(p.name for p in PHASES if p.key == cur["key"])
-        normal_since = _from_doy(cur["since"].year, norm[cur["key"]][0]) if cur["key"] in norm else None
+        ref = cur.pop("ref")  # the DWD reference year (a December hazel belongs to the next)
+        normal_since = _from_doy(ref, norm[cur["key"]][0]) if cur["key"] in norm else None
         cur_delay = (cur["since"] - normal_since).days if normal_since and cur["source"] != "mittel" else None
         current = {**cur, "name": name, "since": cur["since"].isoformat(), "delay_days": cur_delay}
     return {"current": current, "phases": phases, "next": _next(current, phases, year)}
@@ -217,11 +222,19 @@ def _next(current: dict[str, Any] | None, phases: list[dict[str, Any]], year: in
     return None
 
 
+CROSS_YEAR = {"vorfruehling", "winter"}  # the only phases DWD reports in the neighbouring calendar year
+
+
+def reference_year(phase: str, day: date) -> int:
+    """DWD's year for an entry: a hazel blossoming in December counts for the next year."""
+    return day.year + 1 if phase == "vorfruehling" and day.month == 12 else day.year
+
+
 def implausible(phase: str, day: date, norm: dict[str, tuple[int, int]]) -> bool:
     """An own observation far from the phase's normal (more than MAX_OFF_DAYS)."""
     if phase not in norm:
         return False
-    normal = _from_doy(day.year, norm[phase][0])
+    normal = _from_doy(reference_year(phase, day), norm[phase][0])
     return abs((day - normal).days) > MAX_OFF_DAYS and not (phase == "winter" and day.month <= 2)
 
 

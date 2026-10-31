@@ -221,3 +221,28 @@ def test_normals_job_runs_at_once_for_a_new_region_and_backs_off_after_a_failure
     assert not due({"region": region, "attempt_at": now, "done": False})  # failed just now: wait
     old = (datetime.now(UTC) - timedelta(days=4)).isoformat()
     assert due({"region": region, "attempt_at": old, "done": False})
+
+
+def test_hazel_in_december_counts_for_the_next_reference_year() -> None:
+    lines = [HEAD, report(1, 2026, 113, 5, "2025-12-28"), report(2, 2026, 113, 5, "2026-01-05"),
+             report(1, 2000, 113, 5, "1999-12-22"), report(1, 2001, 113, 5, "2001-01-01")]  # fmt: skip
+    rows = pheno.parse_reports("\n".join(lines))
+    assert pheno.current(rows, {"1", "2"}, 2026)["vorfruehling"] == (date(2026, 1, 1), 2)  # median of 28.12. and 5.1.
+    doy, n = pheno.normals(rows, {"1"})["vorfruehling"]
+    assert n == 2 and doy in (-4, -5)  # between 22.12. (-9) and 1.1. (1)
+
+
+def test_december_hazel_has_a_sane_delay_and_can_be_observed(client: TestClient, db: Engine) -> None:
+    with db.begin() as c:
+        sql = "INSERT INTO pheno_normals (phase, doy, stations, computed_at) VALUES ('vorfruehling', 40, 30, now())"
+        c.execute(text(sql))
+    events = {"vorfruehling": {"day": date(2026, 12, 20), "source": "dwd", "reports": 3}}
+    s = pheno.season(date(2027, 1, 5), events, {"vorfruehling": (40, 30)}, None)  # 2027's hazel, seen in December
+    assert s["current"]["delay_days"] == -51  # 20.12.2026 vs 9.2.2027: 51 days earlier
+    assert pheno.reference_year("vorfruehling", date(2026, 12, 20)) == 2027
+    assert not pheno.implausible("vorfruehling", date(2026, 12, 20), {"vorfruehling": (-10, 30)})
+
+
+def test_other_phases_do_not_cross_the_year() -> None:
+    lines = [HEAD, report(1, 2026, 109, 5, "2025-12-30")]  # a Forsythia "in 2025" for 2026: a stray row
+    assert pheno.current(pheno.parse_reports("\n".join(lines)), {"1"}, 2026) == {}
