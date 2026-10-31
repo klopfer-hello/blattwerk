@@ -1,0 +1,33 @@
+# garten-planer on the Docker host, behind the existing Traefik. Copied there by
+# scripts/deploy.sh, which also writes GARTEN_PLANER_IMAGE, GP_HOST and
+# TRAEFIK_NETWORK into the host's .env (never committed). No published ports:
+# only Traefik reaches the container.
+services:
+  web:
+    image: ${GARTEN_PLANER_IMAGE:?set by scripts/deploy.sh}
+    pull_policy: never
+    container_name: garten-planer-web
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp
+    security_opt:
+      - no-new-privileges:true
+    cap_drop: [ALL]
+    networks:
+      - routing
+    labels:
+      - "traefik.enable=true"
+      - "traefik.docker.network=${TRAEFIK_NETWORK:?}"
+      - "traefik.http.routers.garten-planer-http.rule=Host(`${GP_HOST:?}`)"
+      - "traefik.http.routers.garten-planer-http.entrypoints=web"
+      - "traefik.http.routers.garten-planer-http.middlewares=redirect-to-https@file"
+      - "traefik.http.routers.garten-planer.rule=Host(`${GP_HOST:?}`)"
+      - "traefik.http.routers.garten-planer.entrypoints=websecure"
+      - "traefik.http.routers.garten-planer.tls=true"
+      - "traefik.http.services.garten-planer.loadbalancer.server.port=8080"
+
+networks:
+  routing:
+    name: ${TRAEFIK_NETWORK:?}
+    external: true

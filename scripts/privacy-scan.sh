@@ -19,7 +19,7 @@ EMPTY_TREE=$(git hash-object -t tree /dev/null)
 
 # label<TAB>extended regex. Written so they do not match this file's own text.
 GENERIC=$(cat <<'EOF'
-private IPv4	(^|[^0-9.])(10|127|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9]|$)
+private IPv4	(^|[^0-9.])(10\.[0-9]{1,3}|192\.168|172\.(1[6-9]|2[0-9]|3[01]))\.[0-9]{1,3}\.[0-9]{1,3}([^0-9.]|$)
 LAN host name	[A-Za-z0-9-]+\.(lan|home|internal|fritz\.box)([^A-Za-z0-9.-]|$)
 user home path	[A-Za-z]:[\\/]+Users[\\/]+[A-Za-z]|/home/[a-z][a-z0-9_-]+/|/Users/[A-Za-z]
 e-mail address	[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z][A-Za-z]+
