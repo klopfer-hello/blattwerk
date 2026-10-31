@@ -127,6 +127,8 @@ def _task_out(r: Row[Any], s: LegalSettings, day: date) -> Task:
         plant=plant,
         source=r.source,
         enabled=r.enabled,
+        products=r.products,
+        why=r.why,
         notes=_notes(r, s, months_in_year(_timing(r), day.year)),
     )
 
@@ -254,8 +256,15 @@ async def _one_task(c: AsyncConnection, tid: str, day: date) -> Task:
 
 
 @router.get("/tasks")
-async def list_tasks(c: Conn, day: Today, plant_id: Annotated[str | None, Query(max_length=120)] = None) -> list[Task]:
+async def list_tasks(
+    c: Conn,
+    day: Today,
+    plant_id: Annotated[str | None, Query(max_length=120)] = None,
+    retired: bool = False,  # also tasks of replaced care plans (history)
+) -> list[Task]:
     q = select(tasks, _plant_title, *FACTS).select_from(_plant_join).order_by(tasks.c.title)
+    if not retired:
+        q = q.where(~tasks.c.retired)
     if plant_id:
         q = q.where(tasks.c.plant_id == plant_id)
     s = await legal_settings(c)
@@ -292,6 +301,8 @@ async def update_task(tid: str, body: TaskIn, c: Conn, day: Today) -> Task:
         raise not_found("task")
     await _check_plant(c, body)
     values: dict[str, Any] = body.model_dump() | {"updated_at": datetime.now(UTC)}
+    if old.source == "plan":  # edited by hand: survives the next plan (F-CP-7)
+        values["source"] = "manual"
     rule_fields = ("category", "cut_type", "plant_id")  # the legal rules depend on these (review M4)
     if _timing(old) != _timing(body) or any(
         getattr(old, f) != getattr(body, f) for f in rule_fields
@@ -304,8 +315,12 @@ async def update_task(tid: str, body: TaskIn, c: Conn, day: Today) -> Task:
 
 
 async def _set_enabled(c: AsyncConnection, tid: str, enabled: bool, day: date) -> Task:
-    if (await c.execute(update(tasks).where(tasks.c.id == tid).values(enabled=enabled))).rowcount == 0:
+    row = (await c.execute(select(tasks.c.retired).where(tasks.c.id == tid).with_for_update())).first()
+    if row is None:
         raise not_found("task")
+    if row.retired and enabled:  # its plan was replaced; the new plan has its own task
+        raise ApiError(409, "task belongs to a replaced plan")
+    await c.execute(update(tasks).where(tasks.c.id == tid).values(enabled=enabled))
     if enabled:
         await materialize(c, day, [tid])
     else:  # only open ones go; done/skipped history stays

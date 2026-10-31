@@ -17,3 +17,7 @@ class Config(BaseSettings):
     vapid_public: str = ""
     vapid_private: SecretStr = SecretStr("")
     vapid_subject: str = "mailto:garten-planer@example.com"
+    # Care plans (M5), worker only. The CLI itself is configured in claude_cli.
+    plan_model: str = "sonnet"
+    plan_budget_usd: float = 0.50  # per plan, enforced by the CLI
+    plan_daily_limit: int = 60  # plan runs per day for the whole garden

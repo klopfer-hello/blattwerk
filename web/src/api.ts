@@ -86,7 +86,18 @@ export interface TaskIn {
   due_date: string | null; month_from: number | null; month_to: number | null; interval_days: number | null;
   start_date: string | null; urgent: boolean;
 }
-export interface Task extends TaskIn { id: string; plant: { id: string; title: string } | null; source: string; enabled: boolean; notes: LegalNote[] }
+export interface Product { name: string; kind: string; npk: string | null; dose: string; brands: string[] }
+export interface Task extends TaskIn {
+  id: string; plant: { id: string; title: string } | null; source: string; enabled: boolean; notes: LegalNote[];
+  products: Product[]; why: string;  // filled for tasks from the care plan
+}
+export interface Pest { name: string; time: string; prevent: string; treat: string }
+export interface CarePlan {
+  id: string; created_at: string; model: string; prompt_version: string; summary: string;
+  confidence: 'low' | 'medium' | 'high'; caveats: string; pests: Pest[]; dropped: number;
+}
+export interface PlanJob { id: string; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; created_at: string; finished_at: string | null }
+export interface PlanState { plan: CarePlan | null; job: PlanJob | null }
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
   note: string; done_at: string | null; legal_adjustment: string | null; notes: LegalNote[];
@@ -117,6 +128,8 @@ export const api = {
   restorePlant: (id: string) => request<Plant>('POST', `/plants/${enc(id)}/restore`),
   tasks: (plantId?: string) => request<Task[]>('GET', `/tasks${plantId ? `?plant_id=${enc(plantId)}` : ''}`),
   task: (id: string) => request<Task>('GET', `/tasks/${enc(id)}`),
+  plan: (plantId: string) => request<PlanState>('GET', `/plants/${enc(plantId)}/plan`),
+  requestPlan: (plantId: string) => request<{ job_id: string }>('POST', `/plants/${enc(plantId)}/plan`),
   createTask: (t: TaskIn) => request<Task>('POST', '/tasks', t),
   updateTask: (id: string, t: TaskIn) => request<Task>('PUT', `/tasks/${enc(id)}`, t),
   setTaskEnabled: (id: string, on: boolean) => request<Task>('POST', `/tasks/${enc(id)}/${on ? 'enable' : 'disable'}`),

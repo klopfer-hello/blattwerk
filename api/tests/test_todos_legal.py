@@ -12,6 +12,7 @@ from garten_planer.routes.todos import TZ, now
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
+OUTPUT_ONLY = ("id", "plant", "enabled", "source", "notes", "products", "why")  # task answer fields a PUT does not take
 
 
 def on(client: TestClient, day: date) -> None:
@@ -124,9 +125,7 @@ def test_switching_to_a_strong_cut_moves_the_open_todo(client: TestClient) -> No
     on(client, date(2026, 6, 10))
     t = cut(client, plant(client, "carpinus-betulus"), cut_type="pflege")
     assert len(client.get("/api/todos/heute").json()["open"]) == 1
-    body = {k: v for k, v in t.items() if k not in ("id", "plant", "enabled", "source", "notes")} | {
-        "cut_type": "stark"
-    }
+    body = {k: v for k, v in t.items() if k not in OUTPUT_ONLY} | {"cut_type": "stark"}
     assert client.put(f"/api/tasks/{t['id']}", json=body, headers=H).status_code == 200
     assert client.get("/api/todos/heute").json()["open"] == []  # now only in October
 

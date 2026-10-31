@@ -11,6 +11,7 @@ from garten_planer.routes.todos import TZ, now
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
+OUTPUT_ONLY = ("id", "plant", "enabled", "source", "notes", "products", "why")  # task answer fields a PUT does not take
 NOV_2 = date(2026, 11, 2)
 
 
@@ -122,7 +123,7 @@ def test_changing_the_window_replaces_open_but_keeps_done(client: TestClient) ->
     client.post(f"/api/todos/{todo['id']}/done", json={}, headers=H)
     on(client, date(2027, 1, 10))
     body = {**t, "month_from": 1, "month_to": 1}
-    for k in ("id", "plant", "enabled", "source", "notes"):
+    for k in ("id", "plant", "enabled", "source", "notes", "products", "why"):
         body.pop(k)
     assert client.put(f"/api/tasks/{t['id']}", json=body, headers=H).status_code == 200
     h = heute(client)
@@ -196,7 +197,7 @@ def interval_task(client: TestClient, plant_id: str | None = None, days: int = 7
 
 
 def edit_task(client: TestClient, t: dict[str, Any], **changes: Any) -> dict[str, Any]:
-    body = {k: v for k, v in t.items() if k not in ("id", "plant", "enabled", "source", "notes")} | changes
+    body = {k: v for k, v in t.items() if k not in OUTPUT_ONLY} | changes
     r = client.put(f"/api/tasks/{t['id']}", json=body, headers=H)
     assert r.status_code == 200, r.text
     return dict(r.json())

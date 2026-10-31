@@ -15,7 +15,7 @@ from garten_planer.config import Config
 from garten_planer.db import make_engine
 from garten_planer.errors import ApiError
 from garten_planer.guard import WriteGuard
-from garten_planer.routes import health, plants, push, settings, species, standorte, todos
+from garten_planer.routes import health, plans, plants, push, settings, species, standorte, todos
 
 log = logging.getLogger("garten_planer")
 
@@ -73,6 +73,6 @@ def create_app(config: Config | None = None) -> FastAPI:
             body["fields"] = exc.fields
         return JSONResponse(body, status_code=exc.status)
 
-    for module in (health, settings, standorte, species, plants, todos, push):
+    for module in (health, settings, standorte, species, plants, todos, push, plans):
         app.include_router(module.router, prefix="/api")
     return app

@@ -1,10 +1,11 @@
 // Plants (M2: real data). List by Standort, detail with facts, add/edit form
-// with live name suggestions. Care plan and pest tabs fill in with M5; demo
+// with live name suggestions. The care plan (M5) is made by Claude in the worker;
+// the detail polls while a job runs. Demo
 // plants (links from the still-demo Heute/Kalender) render as DemoPlantDetail.
 import { useEffect, useRef, useState } from 'react';
 import {
   ApiError, FORMS, STANDORT_TYPES, api, type Candidate, type Form, type Light, type Plant, type PlantIn, type Species,
-  type Standort, type Task,
+  type PlanState, type Standort, type Task,
 } from '../api';
 import { MONTHS, plantById, standortById } from '../mock/data';
 import { Back, Chip, Icon, Legal, TaskChip, timingText } from '../components/ui';
@@ -85,11 +86,45 @@ export function PlantDetail({ id }: { id: string }) {
   const [error, setError] = useState<ApiError | null>(null);
   const [tab, setTab] = useState<'plan' | 'pests' | 'history'>('plan');
   const [busy, setBusy] = useState(false);
+  const [plan, setPlan] = useState<PlanState | null>(null);
+  const [planFailed, setPlanFailed] = useState(false);
+  const [tick, setTick] = useState(0);  // bump = load the plan state again (after a request, "neu laden")
+  const [tasksKey, setTasksKey] = useState(0);  // reload the task list when a plan arrives
+  const lastStatus = useRef<string | undefined>(undefined);
   useEffect(() => { api.plant(id).then(setP, (e) => setError(fail(e))); }, [id]);
+  useEffect(() => { setPlan(null); setPlanFailed(false); lastStatus.current = undefined; }, [id]);
+  useEffect(() => {  // poll while Claude works; retry a few times on errors; stop when the screen goes away
+    let current = true;
+    let timer = 0;
+    let errors = 0;
+    const load = () => api.plan(id).then((s) => {
+      if (!current) return;
+      errors = 0; setPlan(s); setPlanFailed(false);
+      const st = s.job?.status;
+      if (st === 'done' && lastStatus.current && lastStatus.current !== 'done') setTasksKey((k) => k + 1);
+      lastStatus.current = st;
+      if (st === 'queued' || st === 'running') timer = window.setTimeout(load, 4000);
+    }, () => {
+      if (!current) return;
+      errors += 1;
+      if (errors <= 5) timer = window.setTimeout(load, 4000 * errors); else setPlanFailed(true);
+    });
+    load();
+    return () => { current = false; window.clearTimeout(timer); };
+  }, [id, tick]);
 
   if (error?.status === 404 && plantById(id)) return <DemoPlantDetail id={id} />;
   if (!p) return <div className="page"><Back href="#/pflanzen" label="Pflanzen" /><p className="box">{error ? error.message : 'Lädt …'}</p></div>;
 
+  async function makePlan() {
+    setError(null);
+    try { await api.requestPlan(id); } catch (e) {
+      const err = fail(e);
+      setError(err.status === 409 ? new ApiError(409, 'Für diese Pflanze wird gerade schon ein Plan erstellt.')
+        : err.status === 429 ? new ApiError(429, 'Heute wurden schon viele Pläne erstellt. Morgen geht es wieder.') : err);
+    }
+    setTick((t) => t + 1);
+  }
   async function toggleArchive() {
     if (!p) return;
     setBusy(true); setError(null);
@@ -123,10 +158,50 @@ export function PlantDetail({ id }: { id: string }) {
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
-      {tab === 'plan' && <PlantTasks plantId={p.id} />}
-      {tab === 'pests' && <p className="box">Typische Schädlinge und Krankheiten kommen mit dem Pflegeplan (M5).</p>}
+      {tab === 'plan' && <CarePlanBox state={plan} failed={planFailed} archived={p.archived} onMake={makePlan} onReload={() => setTick((t) => t + 1)} />}
+      {tab === 'plan' && <PlantTasks key={tasksKey} plantId={p.id} />}
+      {tab === 'pests' && (plan?.plan?.pests.length
+        ? [...plan.plan.pests.map((x, i) => (
+          <div key={i} className="outline stack" style={{ gap: 6 }}>
+            <div className="between"><strong style={{ fontSize: 17 }}>{x.name}</strong><span className="tiny">{x.time}</span></div>
+            {x.prevent && <span><strong>Vorbeugen:</strong> {x.prevent}</span>}
+            {x.treat && <span><strong>Bei Befall:</strong> {x.treat}</span>}
+          </div>
+        )), <span key="note" className="tiny">Vorschläge der KI. Pflanzenschutzmittel nur mit Zulassung für Haus- und Kleingarten verwenden – Etikett und Anwendungsbestimmungen beachten.</span>]
+        : <p className="box">Typische Schädlinge und Krankheiten stehen hier, sobald es einen Pflegeplan gibt.</p>)}
       {tab === 'history' && <p className="box">Der Verlauf (erledigte Aufgaben, Diagnosen) kommt in einem späteren Schritt.</p>}
       {p.species.woody && <span className="tiny">Gehölz: starke Rückschnitte nur 1.10.–28.2. (§ 39 BNatSchG).</span>}
+    </div>
+  );
+}
+
+const CONFIDENCE = { high: 'sicher', medium: 'ziemlich sicher', low: 'unsicher – bitte prüfen' } as const;
+const deDay = (iso: string) => new Date(iso).toLocaleDateString('de-DE', { day: 'numeric', month: 'short', year: 'numeric' });
+
+function CarePlanBox({ state, failed, archived, onMake, onReload }: {
+  state: PlanState | null; failed: boolean; archived: boolean; onMake: () => void; onReload: () => void;
+}) {
+  if (!state) {
+    return failed
+      ? <div className="box stack" style={{ gap: 8 }}><span role="alert">Pflegeplan konnte nicht geladen werden.</span><button className="btn" onClick={onReload}>Neu laden</button></div>
+      : null;
+  }
+  const { plan, job } = state;
+  const running = job?.status === 'queued' || job?.status === 'running';
+  return (
+    <div className="box stack" style={{ gap: 8 }} aria-live="polite">
+      {plan && (
+        <>
+          <div className="between"><strong>Pflegeplan</strong><span className="tiny">{deDay(plan.created_at)} · {CONFIDENCE[plan.confidence]}</span></div>
+          <span>{plan.summary}</span>
+          {plan.caveats && <span className="small muted">Hinweis: {plan.caveats}</span>}
+          <span className="tiny">Erstellt von der KI und geprüft gegen die Regeln (§ 39 BNatSchG). Eigene Aufgaben bleiben beim Neu-Erstellen erhalten; bearbeitete Plan-Aufgaben werden zu eigenen.</span>
+        </>
+      )}
+      {!plan && !running && <span>Noch kein Pflegeplan. Die KI erstellt Schnitt, Düngung, Ernte und Pflanzenschutz passend zu Sorte und Standort.</span>}
+      {running && <span>Die KI erstellt den Pflegeplan … das dauert etwa eine Minute. Du kannst die Seite verlassen.</span>}
+      {job?.status === 'failed' && <span role="alert" style={{ color: 'var(--urgent)' }}>{job.error ?? 'Der Plan konnte nicht erstellt werden.'}</span>}
+      {!archived && !running && <button className={plan ? 'btn' : 'btn primary'} onClick={onMake}>{plan ? 'Pflegeplan neu erstellen' : 'Pflegeplan erstellen'}</button>}
     </div>
   );
 }
@@ -138,10 +213,10 @@ function PlantTasks({ plantId }: { plantId: string }) {
   return (
     <div className="stack" style={{ gap: 8 }}>
       {failed && <p className="box" role="alert">Aufgaben konnten nicht geladen werden.</p>}
-      {list?.length === 0 && <p className="box">Noch keine Aufgaben für diese Pflanze. Den KI-Pflegeplan gibt es ab M5 – bis dahin selbst anlegen.</p>}
+      {list?.length === 0 && <p className="box">Noch keine Aufgaben für diese Pflanze. Pflegeplan erstellen lassen oder selbst anlegen.</p>}
       {list?.map((t) => (
         <a key={t.id} href={`#/aufgabe-bearbeiten/${t.id}`} className="card stack" style={{ gap: 4, textDecoration: 'none', color: 'var(--ink)', opacity: t.enabled ? 1 : 0.6 }}>
-          <span className="row" style={{ gap: 6 }}><TaskChip category={t.category} />{!t.enabled && <span className="tiny">pausiert</span>}</span>
+          <span className="row" style={{ gap: 6 }}><TaskChip category={t.category} />{t.source === 'plan' && <span className="tiny">Pflegeplan</span>}{!t.enabled && <span className="tiny">pausiert</span>}</span>
           <strong>{t.title}</strong>
           <span className="small muted">{timingText(t)}</span>
         </a>

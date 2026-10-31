@@ -49,6 +49,7 @@ services:
     environment:
       GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
       GP_VAPID_PUBLIC: ${GP_VAPID_PUBLIC:-}
+      GP_PLAN_DAILY_LIMIT: ${GP_PLAN_DAILY_LIMIT:-60}  # the api tells the user when it is reached
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
@@ -58,7 +59,7 @@ services:
       migrate:
         condition: service_completed_successfully
 
-  worker:   # push digest + outbox; the ONLY container with a route to the internet (push services)
+  worker:   # push digest + outbox + care plans; the ONLY container with a route to the internet
     image: ${GARTEN_PLANER_API_IMAGE:?set by scripts/deploy.sh}
     pull_policy: never
     container_name: garten-planer-worker
@@ -68,8 +69,16 @@ services:
       GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
       GP_VAPID_PUBLIC: ${GP_VAPID_PUBLIC:-}
       GP_VAPID_PRIVATE: ${GP_VAPID_PRIVATE:-}
+      # Care plans (M5): Claude Code CLI, pinned and verified, installed into the volume at start
+      GP_CLAUDE_VERSION: "2.1.296"
+      GP_CLAUDE_SHA256: 24972e3bc859fab2b46ed4c1e51f7d6130f06d3bd550811a114640de3370d0de
+      GP_CLAUDE_HOME: /claude
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      GP_PLAN_DAILY_LIMIT: ${GP_PLAN_DAILY_LIMIT:-60}
     read_only: true
     tmpfs: [/tmp]
+    volumes:
+      - claude:/claude
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend, egress]
@@ -105,6 +114,7 @@ services:
 
 volumes:
   db:
+  claude:   # Claude Code CLI + its config; no transcripts (--no-session-persistence)
 
 networks:
   backend:

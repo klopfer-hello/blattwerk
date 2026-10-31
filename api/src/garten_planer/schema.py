@@ -14,6 +14,7 @@ from sqlalchemy import (
     Column,
     Date,
     DateTime,
+    Float,
     ForeignKey,
     ForeignKeyConstraint,
     Index,
@@ -23,6 +24,8 @@ from sqlalchemy import (
     Table,
     Text,
     UniqueConstraint,
+    false,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 
@@ -146,6 +149,10 @@ tasks = Table(
     Column("start_date", Date),
     Column("urgent", Boolean, nullable=False),
     Column("source", Text, nullable=False),
+    Column("plan_id", Text, ForeignKey("care_plans.id", ondelete="RESTRICT")),  # source "plan": which plan
+    Column("products", JSONB, nullable=False, server_default=text("'[]'::jsonb")),  # plan tasks: products/brands
+    Column("why", Text, nullable=False, server_default=""),  # plan tasks: one sentence why
+    Column("retired", Boolean, nullable=False, server_default=false()),  # replaced by a newer plan: history only
     Column("enabled", Boolean, nullable=False),
     Column("generation", Integer, nullable=False),  # +1 on every timing change; occurrences keep theirs
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -220,4 +227,42 @@ kv = Table(  # small job state (e.g. date of the last digest)
     metadata,
     Column("key", Text, primary_key=True),
     Column("value", JSONB, nullable=False),
+)
+
+care_plans = Table(  # one per Claude run that succeeded (F-AI-5: model, prompt version, cost kept)
+    "care_plans",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("plant_id", Text, ForeignKey("plants.id", ondelete="RESTRICT"), nullable=False, index=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("model", Text, nullable=False),
+    Column("prompt_version", Text, nullable=False),
+    Column("cost_usd", Float),
+    Column("summary", Text, nullable=False),
+    Column("confidence", Text, nullable=False),
+    Column("caveats", Text, nullable=False),
+    Column("pests", JSONB, nullable=False),
+    Column("dropped", Integer, nullable=False),  # tasks the code-side checks threw away
+    CheckConstraint(_in("confidence", ("low", "medium", "high")), name="confidence"),
+)
+
+plan_jobs = Table(  # queue: the api adds, the worker (internet) runs Claude
+    "plan_jobs",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("plant_id", Text, ForeignKey("plants.id", ondelete="RESTRICT"), nullable=False, index=True),
+    Column("status", Text, nullable=False),
+    Column("error", Text),
+    Column("plan_id", Text, ForeignKey("care_plans.id", ondelete="RESTRICT")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("started_at", DateTime(timezone=True)),
+    Column("finished_at", DateTime(timezone=True)),
+    CheckConstraint(_in("status", ("queued", "running", "done", "failed")), name="status"),
+    Index("ix_plan_jobs_status_created_at", "status", "created_at"),
+    Index(  # at most one active job per plant, whoever writes
+        "uq_plan_jobs_active_plant",
+        "plant_id",
+        unique=True,
+        postgresql_where=text("status IN ('queued', 'running')"),
+    ),
 )

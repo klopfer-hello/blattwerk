@@ -3,7 +3,7 @@ never silently disappears."""
 
 from collections.abc import Mapping
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
@@ -228,6 +228,8 @@ class Task(TaskIn):
     source: str
     enabled: bool
     notes: list[dict[str, str]] = []
+    products: list[dict[str, Any]] = []
+    why: str = ""
 
 
 class NoteIn(Strict):

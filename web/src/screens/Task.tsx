@@ -1,7 +1,7 @@
 // To-do detail (one occurrence: note, done/undo, skip, postpone) and the task
 // form (what and when: once / every year in a month window / every n days).
 import { useEffect, useState } from 'react';
-import { ApiError, CATEGORIES, api, type Category, type LegalNote, type Plant, type Recurrence, type TaskIn, type Todo } from '../api';
+import { ApiError, CATEGORIES, api, type Category, type LegalNote, type Plant, type Recurrence, type Task, type TaskIn, type Todo } from '../api';
 import { Back, Legal, LegalNotes, TaskChip, deDate, localIso, monthName, timingText } from '../components/ui';
 import { UNDO_409 } from './Today';
 
@@ -81,12 +81,13 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
   const [error, setError] = useState<ApiError | null>(null);
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
+  const [fromPlan, setFromPlan] = useState<Pick<Task, 'products' | 'why' | 'source'> | null>(null);
   useEffect(() => { api.plants().then(setPlants, () => undefined); }, []);
   useEffect(() => {
     if (!id) return;
     api.task(id).then((t) => {
-      const { id: _i, plant: _p, source: _s, enabled: on, notes: _n, ...rest } = t;
-      setV(rest); setEnabled(on);
+      const { id: _i, plant: _p, source, enabled: on, notes: _n, products, why, ...rest } = t;
+      setV(rest); setEnabled(on); setFromPlan({ source, products, why });
     }, (e) => setError(e instanceof ApiError ? e : new ApiError(0, msg(e))));
   }, [id]);
   const set = (p: Partial<TaskIn>) => setV((x) => ({ ...x, ...p }));
@@ -179,6 +180,15 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       {(fieldErr('interval_days') || fieldErr('due_date')) && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldErr('interval_days') || fieldErr('due_date')}</span>}
       <span className="small muted">{timingText(v)}</span>
       <LegalPreview task={v} />
+      {fromPlan && (fromPlan.why || fromPlan.products.length > 0) && (
+        <div className="box stack" style={{ gap: 6 }}>
+          {fromPlan.why && <span><strong>Warum:</strong> {fromPlan.why}</span>}
+          {fromPlan.products.map((pr, i) => (
+            <span key={i} className="small"><strong>{pr.name}</strong>{pr.npk ? ` (NPK ${pr.npk})` : ''}{pr.dose ? ` · ${pr.dose}` : ''}{pr.brands.length ? ` · z. B. ${pr.brands.join(', ')}` : ''}</span>
+          ))}
+        </div>
+      )}
+      {fromPlan?.source === 'plan' && <span className="tiny">Aus dem Pflegeplan. Nach dem Speichern ist es deine eigene Aufgabe und bleibt auch bei einem neuen Plan erhalten.</span>}
       <div className="setrow" style={{ borderBottom: 0 }}>
         <span id="urgent-label">Dringend (oben in der Liste)</span>
         <button className="switch" role="switch" aria-checked={v.urgent} aria-labelledby="urgent-label" onClick={() => set({ urgent: !v.urgent })}><span /></button>

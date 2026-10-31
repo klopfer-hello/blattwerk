@@ -11,21 +11,47 @@ no SQL parameters)."""
 import asyncio
 import json
 import logging
+import time
 import uuid
 from collections.abc import Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
+from garten_planer.claude_cli import ClaudeError, binary_path, config_from_env, ensure_cli, run_json
 from garten_planer.config import Config
 from garten_planer.digest import digest_due, digest_text
 from garten_planer.models import GardenSettings, known_fields
+from garten_planer.plan import (
+    SCHEMA,
+    SYSTEM,
+    PlanFacts,
+    apply_plan,
+    build_prompt,
+    fail_stale,
+    sanitize,
+    used_today,
+)
 from garten_planer.routes.todos import TZ, _active, _plant_join, materialize
-from garten_planer.schema import kv, push_messages, push_subs, settings, tasks, todos
+from garten_planer.schema import (
+    cultivars,
+    kv,
+    plan_jobs,
+    plants,
+    push_messages,
+    push_subs,
+    settings,
+    species,
+    standorte,
+    tasks,
+    todos,
+)
 
+PLAN_LOOP_S = 5  # the user waits for the plan; a cheap indexed query
 LOOP_S = 30
 MAX_ATTEMPTS = 5
 BATCH = 20  # messages per run; ALIVE is touched after each one
@@ -183,8 +209,11 @@ async def main() -> None:
     sender = make_sender(cfg) if cfg.vapid_private.get_secret_value() else None
     if sender is None:  # nothing could be delivered: do not consume the to-dos either
         log.warning("no GP_VAPID_PRIVATE: push disabled")
+    plans = asyncio.create_task(plan_loop(engine, cfg))  # own loop: a plan takes minutes
     log.info("worker started")
     while True:
+        if plans.done():  # a crash there must not go unnoticed: stop, the restart policy brings us back
+            raise RuntimeError("plan loop stopped")
         try:
             if sender is not None and (count := await run_digest(engine, datetime.now(TZ))):
                 log.info("digest with %d to-dos queued", count)
@@ -194,6 +223,124 @@ async def main() -> None:
             log.warning("job failed: %s", type(e).__name__)
         await asyncio.to_thread(ALIVE.touch)
         await asyncio.sleep(LOOP_S)
+
+
+# ----- care plans (M5) --------------------------------------------------------------
+
+Runner = Callable[[str, str, dict[str, Any]], Awaitable[tuple[dict[str, Any], dict[str, Any]]]]
+
+
+async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
+    r = (
+        await c.execute(
+            select(
+                plants,
+                species.c.latin,
+                species.c.german,
+                cultivars.c.name.label("cultivar_name"),
+                standorte.c.light,
+                standorte.c.type.label("standort_type"),
+            )
+            .join(species, species.c.id == plants.c.species_id)
+            .join(standorte, standorte.c.id == plants.c.standort_id)
+            .outerjoin(cultivars, cultivars.c.id == plants.c.cultivar_id)
+            .where(plants.c.id == plant_id)
+        )
+    ).one()
+    g = await _settings(c)
+    return PlanFacts(
+        latin=r.latin,
+        german=(r.german or [r.latin])[0],
+        cultivar=r.cultivar_name,
+        form=r.form,
+        rootstock=r.rootstock,
+        planted_year=r.planted_year,
+        in_container=r.in_container,
+        light=r.light,
+        standort_type=r.standort_type,
+        bundesland=g.location.bundesland,
+        fertiliser=g.preferences.fertiliser,
+        eco_defaults=g.preferences.eco_defaults,
+    )
+
+
+async def run_plan_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -> int:
+    """Run queued plan jobs one after another; returns how many finished (done or failed).
+    Claim and finish are separate short transactions (the CLI takes minutes, no connection is
+    held meanwhile); a job lost in between is ended by fail_stale."""
+    finished = 0
+    while True:
+        async with engine.begin() as c:
+            await fail_stale(c)
+            if await used_today(c, TZ) >= daily_limit:
+                return finished  # the api says so when asked; the rest waits for tomorrow
+            job = (
+                await c.execute(
+                    select(plan_jobs.c.id, plan_jobs.c.plant_id)
+                    .where(plan_jobs.c.status == "queued")
+                    .order_by(plan_jobs.c.created_at)
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+            ).first()
+            if job is None:
+                return finished
+            await c.execute(
+                update(plan_jobs).where(plan_jobs.c.id == job.id).values(status="running", started_at=datetime.now(UTC))
+            )
+        error = "Unerwarteter Fehler beim Erstellen des Plans."
+        try:
+            async with engine.connect() as c:
+                facts = await _plan_facts(c, job.plant_id)
+            raw, info = await runner(build_prompt(facts), SYSTEM, SCHEMA)
+            plan = sanitize(raw)
+            async with engine.begin() as c:  # plan, tasks, to-dos and "done" together or not at all
+                plan_id, ids = await apply_plan(c, job.plant_id, plan, info)
+                await materialize(c, datetime.now(TZ).date(), ids)
+                await c.execute(
+                    update(plan_jobs)
+                    .where(plan_jobs.c.id == job.id)
+                    .values(status="done", plan_id=plan_id, finished_at=datetime.now(UTC))
+                )
+            log.info("plan done (%d tasks, %d dropped)", len(plan.tasks), plan.dropped)
+        except Exception as e:  # never leave a job "running"; type only in the log
+            if isinstance(e, ClaudeError):
+                error = str(e)
+            log.warning("plan failed: %s", type(e).__name__)
+            async with engine.begin() as c:
+                await c.execute(
+                    update(plan_jobs)
+                    .where(plan_jobs.c.id == job.id)
+                    .values(status="failed", error=error, finished_at=datetime.now(UTC))
+                )
+        finished += 1
+
+
+async def plan_loop(engine: AsyncEngine, cfg: Config) -> None:
+    """Install the pinned CLI (once per volume), then run queued plan jobs."""
+    cli = config_from_env()
+    async with engine.begin() as c:  # one worker: anything still "running" lost its run with the last process
+        await fail_stale(c, timedelta(0))
+    if not (cli.version and cli.sha256):
+        log.warning("no GP_CLAUDE_VERSION/GP_CLAUDE_SHA256: care plans disabled")
+    next_install = 0.0
+
+    async def runner(prompt: str, system: str, schema: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
+        return await run_json(cli, prompt, system, schema, model=cfg.plan_model, budget_usd=cfg.plan_budget_usd)
+
+    while True:
+        if cli.version and cli.sha256 and not binary_path(cli).exists() and time.monotonic() >= next_install:
+            try:  # retried every 10 min after a failed download; jobs meanwhile fail with a clear message
+                await asyncio.to_thread(ensure_cli, cli)
+                log.info("claude cli %s ready", cli.version)
+            except Exception as e:
+                log.warning("claude cli install failed: %s", type(e).__name__)
+                next_install = time.monotonic() + 600
+        try:
+            await run_plan_jobs(engine, runner, cfg.plan_daily_limit)
+        except Exception as e:  # keep running; type only
+            log.warning("plan jobs failed: %s", type(e).__name__)
+        await asyncio.sleep(PLAN_LOOP_S)
 
 
 if __name__ == "__main__":
