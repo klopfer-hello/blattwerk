@@ -36,7 +36,9 @@ async def fail_stale(
 
 
 async def used_today(c: AsyncConnection, table: Table, tz: Any, column: str = "started_at") -> int:
-    """Jobs today; the api counts created ones (asked), the worker started ones (paid)."""
+    """Jobs today; the api counts created ones (asked), the worker started ones (paid). A job
+    that failed without ever reaching Claude (started_at empty) counts for neither."""
     midnight = datetime.combine(datetime.now(tz).date(), datetime.min.time(), tz)
-    count = select(func.count()).select_from(table).where(table.c[column] >= midnight)
+    never_ran = (table.c.status == "failed") & table.c.started_at.is_(None)
+    count = select(func.count()).select_from(table).where(table.c[column] >= midnight, ~never_ran)
     return int((await c.execute(count)).scalar_one())

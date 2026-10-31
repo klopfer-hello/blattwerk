@@ -138,7 +138,7 @@ export function Settings() {
           </div>
         )}
         <span className="tiny">Höchstens einmal am Tag (bzw. in der Woche) und nur, wenn etwas Neues fällig ist – sonst bleibt das Handy still.</span>
-        <Toggle id="push" label="Push bei Wetter-Warnungen" hint="Kommt mit dem Wetter-Modul (M6), sofort statt zur Uhrzeit" checked={s.notifications.weather_push}
+        <Toggle id="push" label="Push bei Wetter-Warnungen" hint="Frost, Hitze und Sturm: sofort, nicht erst zur Uhrzeit" checked={s.notifications.weather_push}
           onChange={(v) => set('notifications', { weather_push: v })} />
       </section>
       <DevicePush />

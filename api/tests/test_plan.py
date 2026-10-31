@@ -294,3 +294,31 @@ def test_a_paused_plan_task_stays_paused_in_the_next_plan(client: TestClient) ->
     work(fake(answer()))
     now_ = {t["title"]: t["enabled"] for t in client.get("/api/tasks", params={"plant_id": pid}).json()}
     assert now_ == {"Hecke in Form schneiden": True, "Hecke stark verjüngen": True, "Organisch düngen": False}
+
+
+def test_a_job_that_never_reached_claude_does_not_count(client: TestClient, db: Engine) -> None:
+    from garten_planer.claude_cli import NotReady
+
+    pid = hedge(client)
+    client.post(f"/api/plants/{pid}/plan", headers=H)
+    work(fake(NotReady("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")))
+    with db.connect() as c:
+        row = c.execute(text("SELECT status, started_at FROM plan_jobs")).one()
+    assert row.status == "failed" and row.started_at is None
+
+
+@pytest.mark.parametrize(
+    ("text", "dried"),
+    [
+        ("Gut wässern, z. B. morgens. Dann mulchen.", "Dann mulchen."),
+        ("Ca. 3 kg Kompost geben. Danach angießen.", "Ca. 3 kg Kompost geben."),
+        ("1. Boden lockern. 2. Gut angießen. 3. Mulchen.", "1. Boden lockern. 3. Mulchen."),
+        ("1. Boden lockern.\n2. Gut angießen.\n3. Mulchen.", "1. Boden lockern.\n3. Mulchen."),
+        ("Schnitt bzw. Rückschnitt im März.\nNicht gießen.", "Schnitt bzw. Rückschnitt im März."),
+        ("Erste Zeile.\n\nZweiter Absatz bleibt.", "Erste Zeile.\n\nZweiter Absatz bleibt."),
+    ],
+)
+def test_dry_keeps_german_text_whole(text: str, dried: str) -> None:
+    from garten_planer.plan import dry
+
+    assert dry(text) == dried

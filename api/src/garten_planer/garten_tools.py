@@ -18,7 +18,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from garten_planer.models import GardenSettings, TaskIn, known_fields
-from garten_planer.plan import CUTTING, WATERING
+from garten_planer.plan import CUTTING, WATERING, dry
 from garten_planer.routes.todos import TZ
 from garten_planer.schema import (
     care_plans,
@@ -172,9 +172,10 @@ def check_task(payload: dict[str, Any], today: date) -> TaskIn | str:
     """The rules for a chat task, used when proposing and again when confirming: no watering,
     a date from today to 13 months ahead, a cut always goes through § 39 (strong unless the
     proposal says gentle), and whatever TaskIn requires."""
-    title, text = str(payload.get("title", "")), str(payload.get("instructions", ""))
-    if WATERING.search(f"{title} {text}"):
+    title = str(payload.get("title", ""))
+    if WATERING.search(title):
         return "Gießaufgaben legt die App nicht an."
+    payload = payload | {"instructions": dry(str(payload.get("instructions", "")))}
     if payload.get("category") != "ernte" and CUTTING.search(title):
         payload = payload | {"category": "schnitt"}
     if payload.get("category") == "schnitt":

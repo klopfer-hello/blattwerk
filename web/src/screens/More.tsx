@@ -185,7 +185,7 @@ export function Weather() {
       <Back href="#/mehr" label="Mehr" />
       <h1 className="title-s">Wetter &amp; Jahreszeit</h1>
       <WeatherNow />
-      <a href="#/warnung" className="small">Wetterwarnungen ›</a>
+      <a href="#/warnung" className="small linkrow">Wetterwarnungen ›</a>
 
       <SeasonPanel />
 

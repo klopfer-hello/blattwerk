@@ -132,3 +132,14 @@ def test_proposals_per_answer_are_capped_and_deduplicated(client: TestClient, db
 def test_history_tool_sends_no_todo_notes(client: TestClient) -> None:
     pid = garden(client)
     assert "notiz" not in json.dumps(call(gt.verlauf, pid))
+
+
+def test_watering_sentences_leave_a_chat_proposal(client: TestClient, db: Engine) -> None:
+    mid = chat_message(db)
+    r = call(gt.aufgabe_vorschlagen, mid, "Rose pflanzen", SOON, None, "Pflanzloch graben. Gut angießen. Mulchen.")
+    assert r["vorgeschlagen"] is True
+    with db.connect() as c:
+        assert (
+            c.execute(text("SELECT payload->>'instructions' FROM chat_actions")).scalar()
+            == "Pflanzloch graben. Mulchen."
+        )

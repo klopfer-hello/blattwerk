@@ -1,0 +1,55 @@
+# UI smoke stack (scripts/ui-smoke.sh): the real images with an invented demo garden,
+# offline (no Claude, no weather), data in tmpfs. Project garten-planer-smoke, removed
+# after every run. The api's container name is the one nginx proxies to.
+services:
+  db:
+    image: postgres:17.10-alpine
+    environment:
+      POSTGRES_USER: smoke
+      POSTGRES_PASSWORD: smoke
+      POSTGRES_DB: garten_planer
+    tmpfs: [/var/lib/postgresql/data]
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "smoke", "-d", "garten_planer"]
+      interval: 2s
+      retries: 30
+
+  migrate:
+    image: ${SMOKE_API_IMAGE:?}
+    command: ["python", "-m", "garten_planer.migrate"]
+    environment:
+      GP_DATABASE_URL: postgresql+psycopg://smoke:smoke@db:5432/garten_planer
+    depends_on:
+      db:
+        condition: service_healthy
+
+  api:
+    image: ${SMOKE_API_IMAGE:?}
+    networks:
+      default:
+        aliases: [garten-planer-api]   # what nginx in the web image proxies to (no fixed container name)
+    environment:
+      GP_DATABASE_URL: postgresql+psycopg://smoke:smoke@db:5432/garten_planer
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+  web:
+    image: ${SMOKE_WEB_IMAGE:?}
+    networks:
+      default:
+        aliases: [garten-planer-smoke-web]
+    depends_on: [api]
+
+  smoke:
+    image: mcr.microsoft.com/playwright/python:v1.63.0-noble
+    working_dir: /smoke
+    # the image has the browsers; the Python package comes pinned with hashes (requirements.txt, uv pip compile)
+    command: ["sh", "-c", "pip install -q --disable-pip-version-check --no-deps --require-hashes --target /tmp/pw -r requirements.txt && PYTHONPATH=/tmp/pw python smoke.py"]
+    user: "${SMOKE_UID:-0}:${SMOKE_GID:-0}"   # screenshots belong to the one who runs the smoke
+    environment:
+      BASE: http://garten-planer-smoke-web:8080
+      HOME: /tmp
+    volumes:
+      - ./:/smoke
+    depends_on: [web]

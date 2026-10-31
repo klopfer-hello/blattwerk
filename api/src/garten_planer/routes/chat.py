@@ -41,7 +41,8 @@ async def _ask(c: AsyncConnection, chat_id: str, question: str, limit: int) -> s
     midnight = datetime.combine(datetime.now(TZ).date(), datetime.min.time(), TZ)
     asked = await c.execute(
         select(func.count()).select_from(chat_messages)
-        .where(chat_messages.c.role == "assistant", chat_messages.c.created_at >= midnight)
+        .where(chat_messages.c.role == "assistant", chat_messages.c.created_at >= midnight,
+               ~((chat_messages.c.status == "failed") & chat_messages.c.started_at.is_(None)))
     )  # fmt: skip
     if asked.scalar_one() >= limit:
         raise ApiError(429, "daily chat limit reached")

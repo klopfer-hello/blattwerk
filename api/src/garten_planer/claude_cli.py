@@ -31,6 +31,10 @@ class ClaudeError(Exception):
     """Message is German and safe to show (no token, no prompt content)."""
 
 
+class NotReady(ClaudeError):
+    """Claude was not reached at all (no token, CLI not installed): costs nothing, counts nothing."""
+
+
 @dataclass(frozen=True)
 class CliConfig:
     version: str
@@ -96,10 +100,10 @@ async def run_json(
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """(structured answer, run info: model, cost, duration). Raises ClaudeError."""
     if not cfg.token:
-        raise ClaudeError("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")
+        raise NotReady("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")
     binary = binary_path(cfg)
     if not binary.exists():
-        raise ClaudeError("Claude ist noch nicht installiert. Der Worker lädt es beim nächsten Start.")
+        raise NotReady("Claude ist noch nicht installiert. Der Worker lädt es beim nächsten Start.")
     for d in ("home", "config"):
         (cfg.root / d).mkdir(parents=True, exist_ok=True)
     args = [
@@ -142,10 +146,10 @@ async def run_stream(
     config (may carry the database URL for the server) lives in a private temp file that is
     removed afterwards."""
     if not cfg.token:
-        raise ClaudeError("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")
+        raise NotReady("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")
     binary = binary_path(cfg)
     if not binary.exists():
-        raise ClaudeError("Claude ist noch nicht installiert. Der Worker lädt es beim nächsten Start.")
+        raise NotReady("Claude ist noch nicht installiert. Der Worker lädt es beim nächsten Start.")
     for d in ("home", "config"):
         (cfg.root / d).mkdir(parents=True, exist_ok=True)
     fd, path = tempfile.mkstemp(prefix="mcp-", suffix=".json")

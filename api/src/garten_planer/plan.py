@@ -206,12 +206,38 @@ def build_prompt(f: PlanFacts) -> str:
     return "Erstelle den Pflegeplan für diese Pflanze:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 
 
-SENTENCE = re.compile(r"(?<=[.!?])\s+")
+# A sentence ends at . ! ? before a capital letter or a step number ("2. "), not after an
+# abbreviation ("z. B.", "ca.") or a step number itself ("1. ").
+_END = re.compile(r"[.!?](\s+)(?=[A-ZÄÖÜ]|\d+[.)]\s)")
+_ABBR = {"z", "b", "ca", "bzw", "ggf", "u", "a", "nr", "evtl", "inkl", "max", "min", "mind", "usw", "vgl", "d", "h",
+         "bspw", "etc", "o", "s", "zb", "ff"}  # fmt: skip
+_STEP_ONLY = re.compile(r"\s*\d+[.)]\s*")
+
+
+def _sentences(line: str) -> list[str]:
+    out, start = [], 0
+    for m in _END.finditer(line):
+        word = re.search(r"(\w+)$", line[start : m.start()])
+        token = word.group(1).lower() if word else ""
+        if token in _ABBR or token.isdigit():
+            continue
+        out.append(line[start : m.end()])
+        start = m.end()
+    out.append(line[start:])
+    return out
 
 
 def dry(text: str) -> str:
-    """Without the sentences that tell to water (F-CP-6: the app never asks for watering)."""
-    return " ".join(s for s in SENTENCE.split(text.strip()) if s and not WATERING.search(s))
+    """Without the sentences that tell to water (F-CP-6: the app never asks for watering).
+    Line by line, so steps and paragraphs keep their shape; a line left with only its step
+    number goes too."""
+    lines = []
+    for line in text.strip().split("\n"):
+        kept = "".join(s for s in _sentences(line) if not WATERING.search(s)).rstrip()
+        if line.strip() and (not kept.strip() or _STEP_ONLY.fullmatch(kept)):
+            continue  # the whole line was about watering
+        lines.append(kept)
+    return "\n".join(lines).strip()
 
 
 def _products(raw: Any) -> list[dict[str, Any]]:

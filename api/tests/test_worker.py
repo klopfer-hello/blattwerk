@@ -150,3 +150,17 @@ def test_another_answer_resets_the_refusal_count(client: TestClient, db: Engine)
     run(send_pending, fake)
     with db.connect() as c:
         assert c.execute(text("SELECT auth_failures FROM push_subs")).scalar() == 0
+
+
+def test_old_name_lookups_are_purged(client: TestClient, db: Engine) -> None:
+    with db.begin() as c:
+        c.execute(text("INSERT INTO name_jobs (id, query, status, candidates, created_at) VALUES "
+                       "('old', 'Apfel', 'done', '[]', now() - interval '40 days'), "
+                       "('new', 'Birne', 'done', '[]', now())"))  # fmt: skip
+
+    async def fake(endpoint: str, keys: dict[str, str], payload: str) -> int:
+        return 201
+
+    run(send_pending, fake)
+    with db.connect() as c:
+        assert [r[0] for r in c.execute(text("SELECT id FROM name_jobs"))] == ["new"]

@@ -201,3 +201,11 @@ def test_user_species_can_be_corrected_seed_species_not(client: TestClient) -> N
     r = client.put(f"/api/species/{sid}", json=body, headers=H)
     assert r.status_code == 200 and r.json()["german"] == ["Maibeere", "Haskap"]
     assert client.put("/api/species/malus-domestica", json=body, headers=H).status_code == 409
+
+
+def test_attempts_that_never_reached_claude_do_not_use_up_the_day(client: TestClient, db: Engine) -> None:
+    with db.begin() as c:
+        for i in range(100):
+            c.execute(text("INSERT INTO name_jobs (id, query, status, candidates, created_at) "
+                           "VALUES (:i, 'x', 'failed', '[]', now())"), {"i": f"f{i}"})  # fmt: skip
+    assert client.post("/api/species/ai", json={"q": "Apfel"}, headers=H).status_code == 202

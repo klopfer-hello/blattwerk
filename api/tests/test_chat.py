@@ -195,3 +195,14 @@ def test_stream_ends_with_timeout_when_no_answer_comes(client: TestClient, monke
     with client.stream("GET", f"/api/chats/{first['chat_id']}/stream", params={"message_id": first["message_id"]}) as r:
         body = "".join(r.iter_text())
     assert '"status": "timeout"' in body
+
+
+def test_a_chat_answer_without_claude_fails_clearly_and_does_not_count(client: TestClient, db: Engine) -> None:
+    from garten_planer.claude_cli import NotReady
+
+    first = ask(client, "Frage")
+    work(fake(NotReady("Der Garten-Chat ist noch nicht eingerichtet (GP_MCP_DB_PASSWORD fehlt).")))
+    m = client.get(f"/api/chats/{first['chat_id']}").json()["messages"][1]
+    assert m["status"] == "failed" and "noch nicht eingerichtet" in m["error"]
+    with db.connect() as c:
+        assert c.execute(text("SELECT started_at FROM chat_messages WHERE role = 'assistant'")).scalar() is None

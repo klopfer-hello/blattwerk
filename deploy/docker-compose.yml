@@ -92,7 +92,8 @@ services:
     security_opt: [no-new-privileges:true]
     networks: [backend, egress]
     healthcheck:
-      test: ["CMD", "python", "-c", "import os, sys, time; sys.exit(time.time() - os.path.getmtime('/tmp/worker-alive') > 120)"]
+      # push loop every 30 s; each AI loop (plan/name/chat) at least every 15 min - a CLI run ends after 5 min
+      test: ["CMD", "python", "-c", "import glob, os, sys, time; t = time.time(); sys.exit(t - os.path.getmtime('/tmp/worker-alive') > 120 or any(t - os.path.getmtime(f) > 900 for f in glob.glob('/tmp/ai-alive-*')))"]
       interval: 30s
       start_period: 40s
       retries: 3

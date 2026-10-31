@@ -25,7 +25,15 @@ from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
 from garten_planer import chat, mosmix, names, pheno_fetch
-from garten_planer.claude_cli import ClaudeError, binary_path, config_from_env, ensure_cli, run_json, run_stream
+from garten_planer.claude_cli import (
+    ClaudeError,
+    NotReady,
+    binary_path,
+    config_from_env,
+    ensure_cli,
+    run_json,
+    run_stream,
+)
 from garten_planer.config import Config
 from garten_planer.digest import digest_due, digest_text
 from garten_planer.influx import from_config
@@ -65,12 +73,20 @@ CHAT_LOOP_S = 1  # someone is waiting for the answer
 PLAN_LOOP_S = 5  # the user waits for the plan; a cheap indexed query
 LOOP_S = 30
 MAX_ATTEMPTS = 5
+NAME_JOBS_KEEP = timedelta(days=30)
 AUTH_FAILURES_MAX = 3  # 401/403 in 3 periods: the subscription belongs to old keys (ticket 021)
 AUTH_WINDOW = timedelta(hours=6)  # one counted refusal per period: a brief outage is not a dead device
 BATCH = 20  # messages per run; ALIVE is touched after each one
 NEW_DAYS = 14  # only to-dos due in the last NEW_DAYS count as "new" (no backlog flood for a first device)
 KEEP_DAYS = 30  # sent and given-up outbox entries are deleted after this
 ALIVE = Path("/tmp/worker-alive")  # noqa: S108 - /tmp is the container's private tmpfs
+AI_ALIVE = "/tmp/ai-alive-{}"  # noqa: S108 - one heartbeat per AI loop (plan, name, chat), ticket 027
+
+
+def beat(name: str) -> None:
+    Path(AI_ALIVE.format(name)).touch()
+
+
 log = logging.getLogger("garten_planer.worker")
 
 Sender = Callable[[str, dict[str, str], str], Awaitable[int]]
@@ -148,6 +164,10 @@ async def send_pending(engine: AsyncEngine, sender: Sender) -> int:
                 push_messages.c.sent_at.is_not(None) | (push_messages.c.attempts >= MAX_ATTEMPTS),
             )
         )
+        await c.execute(  # typed plant names are not kept longer than needed
+            delete(name_jobs).where(name_jobs.c.created_at < datetime.now(UTC) - NAME_JOBS_KEEP,
+                                    name_jobs.c.status.in_(("done", "failed")))
+        )  # fmt: skip
     async with engine.connect() as c:
         rows = (
             await c.execute(
@@ -307,12 +327,18 @@ async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
     )
 
 
+def _uncounted(e: Exception) -> dict[str, Any]:
+    """A job that never reached Claude does not use up the day's limit (started_at counts)."""
+    return {"started_at": None} if isinstance(e, NotReady) else {}
+
+
 async def run_plan_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -> int:
     """Run queued plan jobs one after another; returns how many finished (done or failed).
     Claim and finish are separate short transactions (the CLI takes minutes, no connection is
     held meanwhile); a job lost in between is ended by fail_stale."""
     finished = 0
     while True:
+        await asyncio.to_thread(beat, "plan")  # between jobs too: a hung run stops it
         async with engine.begin() as c:
             await fail_stale(c, plan_jobs)
             if await used_today(c, plan_jobs, TZ) >= daily_limit:
@@ -354,7 +380,7 @@ async def run_plan_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
                 await c.execute(
                     update(plan_jobs)
                     .where(plan_jobs.c.id == job.id)
-                    .values(status="failed", error=error, finished_at=datetime.now(UTC))
+                    .values(status="failed", error=error, finished_at=datetime.now(UTC), **_uncounted(e))
                 )
         finished += 1
 
@@ -363,6 +389,7 @@ async def run_name_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
     """Run queued name lookups; returns how many finished. Same claim/finish pattern as plans."""
     finished = 0
     while True:
+        await asyncio.to_thread(beat, "name")  # between jobs too: a hung run stops it
         async with engine.begin() as c:
             await fail_stale(c, name_jobs, queued_for=NAME_QUEUED_FOR)
             if await used_today(c, name_jobs, TZ) >= daily_limit:
@@ -389,7 +416,7 @@ async def run_name_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
                       "model": info.get("model"), "cost_usd": info.get("cost_usd")}  # fmt: skip
         except Exception as e:  # never leave a job "running"; type only in the log
             error = str(e) if isinstance(e, ClaudeError) else "Unerwarteter Fehler bei der Namenssuche."
-            values = {"status": "failed", "error": error}
+            values = {"status": "failed", "error": error, **_uncounted(e)}
             log.warning("name lookup failed: %s", type(e).__name__)
         async with engine.begin() as c:
             await c.execute(
@@ -407,6 +434,7 @@ async def run_chat_jobs(engine: AsyncEngine, stream: Streamer, daily_limit: int)
     """Answer queued chat questions one after another; returns how many finished."""
     finished = 0
     while True:
+        await asyncio.to_thread(beat, "chat")  # between jobs too: a hung run stops it
         async with engine.begin() as c:
             await fail_stale(c, chat_messages, CHAT_STALE, queued_for=CHAT_QUEUED_FOR)
             if await used_today(c, chat_messages, TZ) >= daily_limit:  # started = assistant rows only
@@ -471,7 +499,7 @@ async def run_chat_jobs(engine: AsyncEngine, stream: Streamer, daily_limit: int)
             raise
         except Exception as e:  # keep what came so far; the message says why
             error = str(e) if isinstance(e, ClaudeError) else "Unerwarteter Fehler bei der Antwort."
-            values = {"status": "failed", "text": text.replace(TURN, "\n\n").strip(), "error": error}
+            values = {"status": "failed", "text": text.replace(TURN, "\n\n").strip(), "error": error, **_uncounted(e)}
             log.warning("chat answer failed: %s", type(e).__name__)
         async with engine.begin() as c:
             await c.execute(
@@ -488,7 +516,7 @@ def mcp_url(cfg: Config) -> str:
     url = make_url(cfg.database_url.get_secret_value())
     password = cfg.mcp_db_password.get_secret_value()
     if not password:
-        raise ClaudeError("Der Garten-Chat ist noch nicht eingerichtet (GP_MCP_DB_PASSWORD fehlt).")
+        raise NotReady("Der Garten-Chat ist noch nicht eingerichtet (GP_MCP_DB_PASSWORD fehlt).")
     return url.set(username="garten_mcp", password=password).render_as_string(hide_password=False)
 
 

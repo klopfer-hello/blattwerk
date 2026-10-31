@@ -33,3 +33,6 @@ playwright-report/
 *.db
 *.db-*
 .DS_Store
+
+# UI smoke screenshots (local only)
+scripts/smoke/out/
