@@ -8,6 +8,7 @@ import { Calendar } from './screens/Calendar';
 import { PlantDetail, PlantForm, Plants, Standorte } from './screens/Plants';
 import { More, Weather } from './screens/More';
 import { ChatView, Chats } from './screens/Chat';
+import { IndoorPreview } from './screens/IndoorPreview';
 import { Settings } from './screens/Settings';
 
 const KEY = 'garten-planer-welcomed-v2';
@@ -34,6 +35,7 @@ export function App() {
       case 'standorte': return <Standorte />;
       case 'fragen': return arg ? <ChatView key={arg} id={arg} /> : <Chats />;
       case 'wetter': return <Weather />;
+      case 'vorschau-zimmer': return <IndoorPreview />;
       case 'fragen-pflanze': return <Chats key={`p-${arg}`} plantId={arg} />;
       case 'einstellungen': return <Settings />;
       case 'mehr': return <More onWelcome={() => setWelcomed(false)} />;
