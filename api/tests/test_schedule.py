@@ -68,7 +68,7 @@ def test_occurrences(timing: TaskTiming, today: date, expected: list[Occurrence]
     ],
 )
 def test_interval_counts_from_the_day_it_was_done(closed_on: date, days: int, expected: Occurrence) -> None:
-    assert interval_after(closed_on, days) == expected
+    assert interval_after(closed_on, TaskTiming("interval", interval_days=days)) == expected
 
 
 @pytest.mark.parametrize(

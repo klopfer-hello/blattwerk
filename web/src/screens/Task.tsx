@@ -1,7 +1,7 @@
 // To-do detail (one occurrence: note, done/undo, skip, postpone) and the task
 // form (what and when: once / every year in a month window / every n days).
 import { useEffect, useState } from 'react';
-import { ApiError, CATEGORIES, api, type Category, type LegalNote, type Plant, type PhaseKey, type Recurrence, type Task, type TaskIn, PHASES, type Todo } from '../api';
+import { ApiError, CATEGORIES, INDOOR_CATEGORIES, api, type Category, type LegalNote, type Plant, type PhaseKey, type Recurrence, type Task, type TaskIn, PHASES, type Todo } from '../api';
 import { Back, Legal, LegalNotes, TaskChip, deDate, localIso, monthName, timingText, Waiting } from '../components/ui';
 import { UNDO_409 } from './Today';
 
@@ -82,12 +82,14 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
   const [saving, setSaving] = useState(false);
   const [toggling, setToggling] = useState(false);
   const [fromPlan, setFromPlan] = useState<Pick<Task, 'products' | 'why' | 'source'> | null>(null);
+  const [season, setSeason] = useState(false);  // interval only in some months (e.g. fertilise Apr–Sep, M11)
   useEffect(() => { api.plants().then(setPlants, () => undefined); }, []);
   useEffect(() => {
     if (!id) return;
     api.task(id).then((t) => {
       const { id: _i, plant: _p, source, enabled: on, notes: _n, products, why, ...rest } = t;
       setV(rest); setEnabled(on); setFromPlan({ source, products, why });
+      setSeason(rest.recurrence === 'interval' && rest.month_from != null && rest.month_to != null);
     }, (e) => setError(e instanceof ApiError ? e : new ApiError(0, msg(e))));
   }, [id]);
   const set = (p: Partial<TaskIn>) => setV((x) => ({ ...x, ...p }));
@@ -99,7 +101,9 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
     const body: TaskIn = {
       ...v,
       due_date: v.recurrence === 'once' ? v.due_date : null,
-      month_from: v.recurrence === 'yearly' ? v.month_from : null, month_to: v.recurrence === 'yearly' ? v.month_to : null,
+      month_from: v.recurrence === 'yearly' || (v.recurrence === 'interval' && season) ? v.month_from : null,
+      month_to: v.recurrence === 'yearly' || (v.recurrence === 'interval' && season) ? v.month_to : null,
+      winter_interval_days: v.recurrence === 'interval' ? v.winter_interval_days ?? null : null,
       pheno_phase: v.recurrence === 'yearly' ? v.pheno_phase ?? null : null,
       interval_days: v.recurrence === 'interval' ? v.interval_days : null, start_date: v.recurrence === 'interval' ? v.start_date : null,
     };
@@ -114,6 +118,8 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
     try { setEnabled((await api.setTaskEnabled(id, !enabled)).enabled); } catch (e) { setError(e instanceof ApiError ? e : new ApiError(0, msg(e))); } finally { setToggling(false); }
   }
   const fieldErr = (f: string) => (error?.fields[f] ? FIELD_TEXT[f] ?? 'Ungültig.' : null);
+  const indoor = !!plants.find((p) => p.id === v.plant_id)?.standort.indoor;
+  const categories = (Object.keys(CATEGORIES) as Category[]).filter((c) => indoor || c === v.category || !INDOOR_CATEGORIES.includes(c));
   const monthSelect = (label: string, value: number | null, onChange: (m: number) => void, idAttr: string) => (
     <div className="field">
       <label htmlFor={idAttr}>{label}</label>
@@ -135,7 +141,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       <div className="stack">
         <span className="label">Kategorie</span>
         <div className="row" role="group" aria-label="Kategorie">
-          {(Object.keys(CATEGORIES) as Category[]).map((c) => <button key={c} className="seg" aria-pressed={v.category === c} onClick={() => set({ category: c, cut_type: c === 'schnitt' ? v.cut_type ?? 'pflege' : null })}>{CATEGORIES[c]}</button>)}
+          {categories.map((c) => <button key={c} className="seg" aria-pressed={v.category === c} onClick={() => set({ category: c, cut_type: c === 'schnitt' ? v.cut_type ?? 'pflege' : null })}>{CATEGORIES[c]}</button>)}
         </div>
       </div>
       {v.category === 'schnitt' && (
@@ -150,7 +156,8 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       )}
       <div className="field">
         <label htmlFor="plant">Pflanze</label>
-        <select id="plant" className="input" value={v.plant_id ?? ''} onChange={(e) => set({ plant_id: e.target.value || null })}>
+        <select id="plant" className="input" value={v.plant_id ?? ''} onChange={(e) => { const pid = e.target.value || null; const inside = !!plants.find((p) => p.id === pid)?.standort.indoor;
+          set({ plant_id: pid, ...(!inside && INDOOR_CATEGORIES.includes(v.category) ? { category: 'sonstiges' } : {}) }); }}>
           <option value="">Ganzer Garten (keine bestimmte Pflanze)</option>
           {plants.map((p) => <option key={p.id} value={p.id}>{p.nickname || `${p.species.german}${p.cultivar ? ` ‘${p.cultivar.name}’` : ''}`} · {p.standort.name}</option>)}
         </select>
@@ -186,17 +193,32 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
         </>
       )}
       {v.recurrence === 'interval' && (
-        <div className="grid2">
-          <div className="field"><label htmlFor="days">Alle … Tage</label><input id="days" className="input" inputMode="numeric" value={v.interval_days ?? ''} onChange={(e) => set({ interval_days: e.target.value ? Number(e.target.value) : null })} aria-invalid={!!fieldErr('interval_days')} /></div>
-          <div className="field"><label htmlFor="start">Erstes Mal</label><input id="start" type="date" className="input" min="2000-01-01" max="2100-12-31" value={v.start_date ?? ''} onChange={(e) => set({ start_date: e.target.value || null })} /></div>
-        </div>
+        <>
+          <div className="grid2">
+            <div className="field"><label htmlFor="days">Alle … Tage</label><input id="days" className="input" inputMode="numeric" value={v.interval_days ?? ''} onChange={(e) => set({ interval_days: e.target.value ? Number(e.target.value) : null })} aria-invalid={!!fieldErr('interval_days')} /></div>
+            <div className="field"><label htmlFor="start">Erstes Mal</label><input id="start" type="date" className="input" min="2000-01-01" max="2100-12-31" value={v.start_date ?? ''} onChange={(e) => set({ start_date: e.target.value || null })} /></div>
+          </div>
+          {indoor && (
+            <div className="field"><label htmlFor="wdays">Nov–Feb alle … Tage (optional)</label><input id="wdays" className="input" inputMode="numeric" value={v.winter_interval_days ?? ''} onChange={(e) => set({ winter_interval_days: e.target.value ? Number(e.target.value) : null })} aria-invalid={!!fieldErr('winter_interval_days')} /></div>
+          )}
+          <div className="setrow" style={{ borderBottom: 0 }}>
+            <span id="season-label">Nur in bestimmten Monaten</span>
+            <button className="switch" role="switch" aria-checked={season} aria-labelledby="season-label" onClick={() => setSeason(!season)}><span /></button>
+          </div>
+          {season && (
+            <div className="grid2">
+              {monthSelect('Von', v.month_from, (m) => set({ month_from: m }), 'imfrom')}
+              {monthSelect('Bis', v.month_to, (m) => set({ month_to: m }), 'imto')}
+            </div>
+          )}
+        </>
       )}
       {v.recurrence === 'once' && (
         <div className="field"><label htmlFor="due">Datum</label><input id="due" type="date" className="input" min="2000-01-01" max="2100-12-31" value={v.due_date ?? ''} onChange={(e) => set({ due_date: e.target.value || null })} aria-invalid={!!fieldErr('due_date')} /></div>
       )}
       {(fieldErr('interval_days') || fieldErr('due_date')) && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldErr('interval_days') || fieldErr('due_date')}</span>}
-      <span className="small muted">{timingText(v)}</span>
-      <LegalPreview task={v} />
+      <span className="small muted">{timingText({ ...v, month_from: v.recurrence !== 'interval' || season ? v.month_from : null, month_to: v.recurrence !== 'interval' || season ? v.month_to : null })}</span>
+      <LegalPreview task={{ ...v, winter_interval_days: v.recurrence === 'interval' ? v.winter_interval_days ?? null : null, month_from: v.recurrence !== 'interval' || season ? v.month_from : null, month_to: v.recurrence !== 'interval' || season ? v.month_to : null }} />
       {fromPlan && (fromPlan.why || fromPlan.products.length > 0) && (
         <div className="box stack" style={{ gap: 6 }}>
           {fromPlan.why && <span><strong>Warum:</strong> {fromPlan.why}</span>}

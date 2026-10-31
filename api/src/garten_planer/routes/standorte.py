@@ -1,6 +1,8 @@
 """Standorte (F-ST-2). Names are unique ignoring case and umlaut spelling (unique
 folded key in the DB); a Standort that any plant (also archived) refers to
-cannot be deleted (FK RESTRICT), so plant history never points to nothing."""
+cannot be deleted (FK RESTRICT), so plant history never points to nothing. A Standort
+with plants cannot switch between drinnen (zimmer) and draußen: watering and the weather
+rules of its plants depend on it (M11)."""
 
 import uuid
 from datetime import UTC, datetime
@@ -16,7 +18,7 @@ from garten_planer.db import Conn
 from garten_planer.errors import ApiError, constraint_of, not_found
 from garten_planer.models import Standort, StandortIn
 from garten_planer.resolver import fold
-from garten_planer.schema import plants, standorte
+from garten_planer.schema import INDOOR, plants, standorte
 
 router = APIRouter(dependencies=[Depends(ready)])
 DUPLICATE = ApiError(409, "a Standort with this name exists")
@@ -67,6 +69,11 @@ async def create_standort(body: StandortIn, c: Conn) -> Standort:
 
 @router.put("/standorte/{sid}")
 async def update_standort(sid: str, body: StandortIn, c: Conn) -> Standort:
+    old = (await c.execute(select(standorte.c.type).where(standorte.c.id == sid).with_for_update())).first()
+    if old is not None and (old.type == INDOOR) != (body.type == INDOOR):
+        used = await c.execute(select(func.count()).select_from(plants).where(plants.c.standort_id == sid))
+        if used.scalar_one():
+            raise ApiError(409, "Standort has plants: cannot switch between indoor and outdoor")
     values = body.model_dump() | {"name_key": fold(body.name)}
     if await _write(c, update(standorte).where(standorte.c.id == sid).values(values)) == 0:
         raise not_found("Standort")

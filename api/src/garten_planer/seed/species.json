@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "note": "Curated master data of common German garden plants. Public knowledge only: names, family, growth type, woody (BNatSchG §39), feeder class for vegetables. No numeric facts (frost hardiness etc.): those come later from the care-plan step.",
+  "note": "Curated master data of common German garden and indoor plants. Public knowledge only: names, family, growth type, woody (BNatSchG §39), feeder class for vegetables. No numeric facts (frost hardiness etc.): those come later from the care-plan step.",
   "species": [
     {"id": "malus-domestica", "latin": "Malus domestica", "family": "Rosaceae", "german": ["Apfel", "Kulturapfel", "Apfelbaum"], "growth": "baum", "woody": true, "hardiness_c": -30,
      "cultivars": [{"name": "Boskoop", "synonyms": ["Schöner aus Boskoop", "Roter Boskoop"]}, {"name": "Elstar"}, {"name": "Topaz"}, {"name": "Rubinette"}, {"name": "Gala"}, {"name": "Braeburn"}, {"name": "Jonagold"}, {"name": "Cox Orange", "synonyms": ["Cox Orangenrenette"]}, {"name": "Weißer Klarapfel", "synonyms": ["Klarapfel"]}, {"name": "Gravensteiner"}, {"name": "Santana"}, {"name": "Sonate"}, {"name": "Rhapsodie"}, {"name": "Polka"}, {"name": "Waltz"}, {"name": "Bolero"}]},
@@ -95,6 +95,27 @@
     {"id": "petroselinum-crispum", "latin": "Petroselinum crispum", "family": "Apiaceae", "german": ["Petersilie"], "growth": "kraut", "woody": false, "hardiness_c": -8, "feeder": "schwach", "cultivars": []},
     {"id": "ocimum-basilicum", "latin": "Ocimum basilicum", "family": "Lamiaceae", "german": ["Basilikum"], "growth": "kraut", "woody": false, "hardiness_c": 5, "feeder": "mittel", "cultivars": []},
     {"id": "mentha-piperita", "latin": "Mentha × piperita", "family": "Lamiaceae", "german": ["Pfefferminze", "Minze"], "growth": "kraut", "woody": false, "hardiness_c": -25, "feeder": "mittel", "cultivars": []},
-    {"id": "allium-schoenoprasum", "latin": "Allium schoenoprasum", "family": "Amaryllidaceae", "german": ["Schnittlauch"], "growth": "kraut", "woody": false, "hardiness_c": -28, "feeder": "mittel", "cultivars": []}
+    {"id": "allium-schoenoprasum", "latin": "Allium schoenoprasum", "family": "Amaryllidaceae", "german": ["Schnittlauch"], "growth": "kraut", "woody": false, "hardiness_c": -28, "feeder": "mittel", "cultivars": []},
+    {"id": "monstera-deliciosa", "latin": "Monstera deliciosa", "family": "Araceae", "german": ["Monstera", "Fensterblatt", "Köstliches Fensterblatt"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "ficus-elastica", "latin": "Ficus elastica", "family": "Moraceae", "german": ["Gummibaum"], "growth": "kuebel", "woody": true, "cultivars": []},
+    {"id": "ficus-benjamina", "latin": "Ficus benjamina", "family": "Moraceae", "german": ["Birkenfeige", "Benjamini"], "growth": "kuebel", "woody": true, "cultivars": []},
+    {"id": "ficus-lyrata", "latin": "Ficus lyrata", "family": "Moraceae", "german": ["Geigenfeige"], "growth": "kuebel", "woody": true, "cultivars": []},
+    {"id": "dracaena-trifasciata", "latin": "Dracaena trifasciata", "family": "Asparagaceae", "german": ["Bogenhanf", "Sansevieria", "Schwiegermutterzunge"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "dracaena-marginata", "latin": "Dracaena marginata", "family": "Asparagaceae", "german": ["Drachenbaum"], "growth": "kuebel", "woody": true, "cultivars": []},
+    {"id": "zamioculcas-zamiifolia", "latin": "Zamioculcas zamiifolia", "family": "Araceae", "german": ["Glücksfeder", "Zamioculcas", "Zamie"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "epipremnum-aureum", "latin": "Epipremnum aureum", "family": "Araceae", "german": ["Efeutute", "Pothos"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "beaucarnea-recurvata", "latin": "Beaucarnea recurvata", "family": "Asparagaceae", "german": ["Elefantenfuß", "Flaschenbaum", "Klumpstamm"], "growth": "kuebel", "woody": true, "cultivars": []},
+    {"id": "goeppertia", "latin": "Goeppertia", "family": "Marantaceae", "german": ["Calathea", "Korbmarante"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "phalaenopsis", "latin": "Phalaenopsis", "family": "Orchidaceae", "german": ["Orchidee", "Schmetterlingsorchidee", "Nachtfalterorchidee"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "spathiphyllum-wallisii", "latin": "Spathiphyllum wallisii", "family": "Araceae", "german": ["Einblatt", "Spathiphyllum"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "chlorophytum-comosum", "latin": "Chlorophytum comosum", "family": "Asparagaceae", "german": ["Grünlilie"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "aloe-vera", "latin": "Aloe vera", "family": "Asphodelaceae", "german": ["Aloe vera", "Echte Aloe"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "strelitzia-nicolai", "latin": "Strelitzia nicolai", "family": "Strelitziaceae", "german": ["Baumstrelitzie", "Strelitzie"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "nephrolepis-exaltata", "latin": "Nephrolepis exaltata", "family": "Nephrolepidaceae", "german": ["Schwertfarn", "Zimmerfarn"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "pilea-peperomioides", "latin": "Pilea peperomioides", "family": "Urticaceae", "german": ["Ufopflanze", "Glückstaler", "Pilea"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "yucca-gigantea", "latin": "Yucca gigantea", "family": "Asparagaceae", "german": ["Yucca", "Riesen-Palmlilie", "Yucca-Palme"], "growth": "kuebel", "woody": true, "cultivars": []},
+    {"id": "howea-forsteriana", "latin": "Howea forsteriana", "family": "Arecaceae", "german": ["Kentia-Palme", "Kentiapalme"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "streptocarpus-ionanthus", "latin": "Streptocarpus ionanthus", "family": "Gesneriaceae", "german": ["Usambaraveilchen"], "growth": "kuebel", "woody": false, "cultivars": []},
+    {"id": "schefflera-arboricola", "latin": "Schefflera arboricola", "family": "Araliaceae", "german": ["Strahlenaralie", "Schefflera"], "growth": "kuebel", "woody": true, "cultivars": []}
   ]
 }

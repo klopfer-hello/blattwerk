@@ -36,7 +36,7 @@ def test_create_and_read_expanded(client: TestClient, standort: str) -> None:
         "woody": True,
     }
     assert p["cultivar"] == {"id": "malus-domestica:sonate", "name": "Sonate"}
-    assert p["standort"] == {"id": standort, "name": "Weg", "light": "sonnig"}
+    assert p["standort"] == {"id": standort, "name": "Weg", "light": "sonnig", "type": "beet", "indoor": False}
     assert p["archived"] is False
     assert client.get(f"/api/plants/{p['id']}").json() == p
     assert [x["id"] for x in client.get("/api/plants").json()] == [p["id"]]

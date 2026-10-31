@@ -41,11 +41,11 @@ from garten_planer.jobs import CHAT_QUEUED_FOR, CHAT_STALE, NAME_QUEUED_FOR, fai
 from garten_planer.models import GardenSettings, known_fields
 from garten_planer.plan import (
     SCHEMA,
-    SYSTEM,
     PlanFacts,
     apply_plan,
     build_prompt,
     sanitize,
+    system_for,
 )
 from garten_planer.routes.photos import purge_photos
 from garten_planer.routes.todos import TZ, _active, _plant_join, materialize
@@ -293,7 +293,7 @@ async def main() -> None:
 
 # ----- care plans (M5) --------------------------------------------------------------
 
-Runner = Callable[[str, str, dict[str, Any]], Awaitable[tuple[dict[str, Any], dict[str, Any]]]]
+Runner = Callable[..., Awaitable[tuple[dict[str, Any], dict[str, Any]]]]  # (prompt, system, schema[, images=])
 
 
 async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
@@ -327,6 +327,10 @@ async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
         bundesland=g.location.bundesland,
         fertiliser=g.preferences.fertiliser,
         eco_defaults=g.preferences.eco_defaults,
+        window=r.window_dir,
+        window_distance=r.window_distance,
+        pot_cm=r.pot_cm,
+        pot_material=r.pot_material,
     )
 
 
@@ -364,8 +368,8 @@ async def run_plan_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
         try:
             async with engine.connect() as c:
                 facts = await _plan_facts(c, job.plant_id)
-            raw, info = await runner(build_prompt(facts), SYSTEM, SCHEMA)
-            plan = sanitize(raw)
+            raw, info = await runner(build_prompt(facts), system_for(facts), SCHEMA)
+            plan = sanitize(raw, indoor=facts.indoor)
             async with engine.begin() as c:  # plan, tasks, to-dos and "done" together or not at all
                 plan_id, ids = await apply_plan(c, job.plant_id, plan, info)
                 await materialize(c, datetime.now(TZ).date(), ids)
@@ -388,6 +392,15 @@ async def run_plan_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
         finished += 1
 
 
+async def _photo_bytes(engine: AsyncEngine, ids: list[str]) -> list[bytes]:
+    if not ids:
+        return []
+    async with engine.connect() as c:
+        got = {r.id: bytes(r.data) for r in await c.execute(select(photos.c.id, photos.c.data)
+                                                              .where(photos.c.id.in_(ids)))}  # fmt: skip
+    return [got[i] for i in ids if i in got]
+
+
 async def run_name_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -> int:
     """Run queued name lookups; returns how many finished. Same claim/finish pattern as plans."""
     finished = 0
@@ -399,7 +412,7 @@ async def run_name_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
                 return finished
             job = (
                 await c.execute(
-                    select(name_jobs.c.id, name_jobs.c.query)
+                    select(name_jobs.c.id, name_jobs.c.query, name_jobs.c.photo_ids)
                     .where(name_jobs.c.status == "queued")
                     .order_by(name_jobs.c.created_at)
                     .limit(1)
@@ -413,7 +426,12 @@ async def run_name_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
             )
         values: dict[str, Any]
         try:
-            raw, info = await runner(names.build_prompt(job.query), names.SYSTEM, names.SCHEMA)
+            images = await _photo_bytes(engine, job.photo_ids)
+            if len(images) != len(job.photo_ids):
+                raise NotReady("Das Foto ist nicht mehr da. Bitte neu aufnehmen.")
+            prompt = names.build_prompt(job.query, len(images))
+            raw, info = await (runner(prompt, names.SYSTEM, names.SCHEMA, images=images) if images
+                               else runner(prompt, names.SYSTEM, names.SCHEMA))  # fmt: skip
             found = names.sanitize(raw)
             values = {"status": "done", "candidates": [x.model_dump() for x in found],
                       "model": info.get("model"), "cost_usd": info.get("cost_usd")}  # fmt: skip
@@ -558,8 +576,10 @@ async def ai_loops(engine: AsyncEngine, cfg: Config) -> None:
         log.warning("no GP_CLAUDE_VERSION/GP_CLAUDE_SHA256: AI features disabled")
 
     def runner(budget: float) -> Runner:
-        async def run(prompt: str, system: str, schema: dict[str, Any]) -> tuple[dict[str, Any], dict[str, Any]]:
-            return await run_json(cli, prompt, system, schema, model=cfg.plan_model, budget_usd=budget)
+        async def run(
+            prompt: str, system: str, schema: dict[str, Any], images: list[bytes] | None = None
+        ) -> tuple[dict[str, Any], dict[str, Any]]:
+            return await run_json(cli, prompt, system, schema, model=cfg.plan_model, budget_usd=budget, images=images)
 
         return run
 

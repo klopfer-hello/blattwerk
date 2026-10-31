@@ -3,7 +3,7 @@
 // list, so every phone shows the same state. Weather alerts (M6b) sit on top;
 // their urgent to-dos are in the list like any other.
 import { useCallback, useEffect, useState } from 'react';
-import { ApiError, CATEGORIES, api, type Category, type Heute, type Todo, type WeatherAlert } from '../api';
+import { ApiError, CATEGORIES, api, type Category, type Heute, type Soil, type Todo, type WeatherAlert } from '../api';
 import { Back, Icon, TaskChip, deDate, localDay, monthName, Waiting } from '../components/ui';
 import { delayText } from './More';
 
@@ -23,6 +23,13 @@ export function Today() {
     setBusy(t.id);
     try { await (t.status === 'open' ? api.done(t.id) : api.undo(t.id)); await load(); }
     catch (e) { setError(e instanceof ApiError && e.status === 409 ? UNDO_409 : e instanceof ApiError ? e.message : 'Fehler'); }
+    finally { setBusy(null); }
+  }
+  async function soil(t: Todo, how: Soil) {   // indoor watering (M11): adjusts the rhythm once
+    if (busy) return;
+    setBusy(t.id);
+    try { await api.soil(t.id, how); await load(); }
+    catch (e) { setError(e instanceof ApiError ? e.message : 'Fehler'); }
     finally { setBusy(null); }
   }
 
@@ -78,7 +85,7 @@ export function Today() {
       {data && data.done.length > 0 && (
         <section className="stack">
           <h2 className="eyebrow">Erledigt</h2>
-          {data.done.map((t) => <TodoItem key={t.id} t={t} busy={busy === t.id} onToggle={() => toggle(t)} />)}
+          {data.done.map((t) => <TodoItem key={t.id} t={t} busy={busy === t.id} onToggle={() => toggle(t)} onSoil={(how) => soil(t, how)} />)}
         </section>
       )}
     </div>
@@ -94,9 +101,13 @@ function whenText(t: Todo): string {
   return t.due_from === t.due_to ? `Fällig am ${deDate(t.due_from)}` : `bis ${deDate(t.due_to)}`;
 }
 
-export function TodoItem({ t, busy, onToggle }: { t: Todo; busy: boolean; onToggle: () => void }) {
+const SOIL: [Soil, string][] = [['feucht', 'noch feucht'], ['passt', 'passt'], ['trocken', 'knochentrocken']];
+
+export function TodoItem({ t, busy, onToggle, onSoil }: { t: Todo; busy: boolean; onToggle: () => void; onSoil?: (how: Soil) => void }) {
   const done = t.status !== 'open';
+  const askSoil = onSoil && t.status === 'done' && t.task.category === 'giessen' && t.task.recurrence === 'interval' && !t.soil;
   return (
+    <div className="stack" style={{ gap: 6 }}>
     <div className={done ? 'todo done' : 'todo'}>
       <button className="check" role="checkbox" aria-checked={done} disabled={busy} onClick={onToggle}
         aria-label={done ? `${t.task.title}: wieder offen` : `${t.task.title}: erledigt`}>
@@ -107,7 +118,17 @@ export function TodoItem({ t, busy, onToggle }: { t: Todo; busy: boolean; onTogg
         <span className="row" style={{ gap: 6 }}><TaskChip category={t.task.category} />{t.plant && <span className="small muted">{t.plant.title}</span>}</span>
         <span className={!done && (t.overdue || t.task.urgent) ? 'when urgent' : done ? 'small muted' : 'when'}>{whenText(t)}</span>
         {!done && t.legal_adjustment && <span className="small" style={{ color: 'var(--legal)', fontWeight: 700 }}>{t.legal_adjustment.startsWith('Verschoben') ? '§ verschoben (Vogelschutzzeit)' : '§ Zeitraum angepasst (Vogelschutzzeit)'}</span>}
+        {t.soil && <span className="small muted">Erde vorher: {SOIL.find(([k]) => k === t.soil)?.[1]}</span>}
       </a>
+    </div>
+    {askSoil && (
+      <div className="stack" style={{ gap: 6, paddingLeft: 44 }}>
+        <span className="small">Wie war die Erde vor dem Gießen? (passt den Rhythmus an)</span>
+        <div className="row" role="group" aria-label={`${t.task.title}: Erde vor dem Gießen`} style={{ gap: 6 }}>
+          {SOIL.map(([k, label]) => <button key={k} className="seg" disabled={busy} onClick={() => onSoil(k)}>{label}</button>)}
+        </div>
+      </div>
+    )}
     </div>
   );
 }

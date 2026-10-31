@@ -6,7 +6,9 @@ Rules (simple on purpose, after review M3a):
   period) whenever a task changes, an occurrence is closed, and when Heute is read.
 - Interval tasks: if nothing is open, the next one is due at "last done/skipped +
   n days" (or start_date / today without history). This one rule covers done,
-  undo, pause/resume and interval changes.
+  undo, pause/resume and interval changes. Indoor (M11): a winter n (Nov-Feb), an
+  active month window, and the soil feedback after watering changes n.
+- Watering only for indoor plants (F-CP-6); the garden rules (§ 39) not for them.
 - A timing change starts a new generation: old occurrences stay as history,
   open ones of older generations are removed. History is never deleted.
 - Archived plants produce no to-dos (their tasks are skipped, not changed).
@@ -19,7 +21,7 @@ from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Row, delete, func, insert, or_, select, update
+from sqlalchemy import Row, and_, delete, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -35,7 +37,7 @@ from garten_planer.legal import (
     is_fruit_tree,
     notes,
 )
-from garten_planer.models import GardenSettings, NoteIn, PostponeIn, Task, TaskIn, known_fields
+from garten_planer.models import GardenSettings, NoteIn, PostponeIn, SoilIn, Task, TaskIn, known_fields
 from garten_planer.schedule import (
     HORIZON_DAYS,
     Occurrence,
@@ -43,16 +45,27 @@ from garten_planer.schedule import (
     interval_after,
     months_in_year,
     occurrences,
+    rhythm_field,
     yearly_span,
 )
-from garten_planer.schema import cultivars, plants, settings, species, tasks, todos
+from garten_planer.schema import (
+    INDOOR,
+    INDOOR_CATEGORIES,
+    cultivars,
+    plants,
+    settings,
+    species,
+    standorte,
+    tasks,
+    todos,
+)
 from garten_planer.season_dates import safe_phase_starts
 
 router = APIRouter(dependencies=[Depends(ready)])
 TZ = ZoneInfo("Europe/Berlin")
 TIMING = (
-    "recurrence", "due_date", "month_from", "month_to", "interval_days", "start_date", "pheno_phase",
-    "pheno_offset", "pheno_window",
+    "recurrence", "due_date", "month_from", "month_to", "interval_days", "winter_interval_days", "start_date",
+    "pheno_phase", "pheno_offset", "pheno_window",
 )  # fmt: skip
 
 
@@ -78,8 +91,12 @@ _plant_join = (
     tasks.outerjoin(plants, plants.c.id == tasks.c.plant_id)
     .outerjoin(species, species.c.id == plants.c.species_id)
     .outerjoin(cultivars, cultivars.c.id == plants.c.cultivar_id)
+    .outerjoin(standorte, standorte.c.id == plants.c.standort_id)
 )
-_active = or_(tasks.c.plant_id.is_(None), plants.c.archived_at.is_(None))  # plant not archived
+_active = and_(
+    or_(tasks.c.plant_id.is_(None), plants.c.archived_at.is_(None)),  # plant not archived
+    or_(tasks.c.category.not_in(INDOOR_CATEGORIES), standorte.c.type == INDOOR),  # watering: indoors only (F-CP-6)
+)
 
 
 # Plant facts the legal rules need (legal.py), selected next to every task.
@@ -88,6 +105,7 @@ FACTS = (
     species.c.growth.label("sp_growth"),
     species.c.latin.label("sp_latin"),
     plants.c.girth_cm.label("pl_girth"),
+    standorte.c.type.label("st_type"),
 )
 
 
@@ -98,7 +116,8 @@ def _timing(r: Any) -> TaskTiming:
 def _facts(r: Any) -> PlantFacts | None:
     if not r.plant_id:
         return None
-    return PlantFacts(r.sp_woody, r.sp_growth, is_fruit_tree(r.sp_latin, r.sp_growth), r.pl_girth)
+    return PlantFacts(r.sp_woody, r.sp_growth, is_fruit_tree(r.sp_latin, r.sp_growth), r.pl_girth,
+                      r.st_type == INDOOR)  # fmt: skip
 
 
 async def legal_settings(c: AsyncConnection) -> LegalSettings:
@@ -156,6 +175,7 @@ def _todo_out(r: Row[Any], day: date, s: LegalSettings) -> dict[str, Any]:
         "blocked_until": blocked,  # a strong cut that is not allowed today (§ 39): not "overdue"
         "postponed": r.postponed,
         "note": r.note,
+        "soil": r.soil,
         "done_at": r.done_at,
         "task": {k: getattr(r, k) for k in ("id", "title", "category", "urgent", "instructions", "recurrence")},
         "plant": {"id": r.plant_id, "title": r.plant_title} if r.plant_id else None,
@@ -171,6 +191,7 @@ _todo_query = select(
     todos.c.due_to,
     todos.c.postponed,
     todos.c.note,
+    todos.c.soil,
     todos.c.done_at,
     todos.c.legal_adjustment,
     tasks,
@@ -225,7 +246,7 @@ async def materialize(c: AsyncConnection, day: date, task_ids: list[str] | None 
             found = []
         else:
             last = last_closed.get(r.id)
-            after_last = interval_after(last.astimezone(TZ).date(), r.interval_days) if last else None
+            after_last = interval_after(last.astimezone(TZ).date(), _timing(r)) if last else None
             if after_last is not None:
                 a, b, why = adjust(after_last.due_from, after_last.due_to)
                 after_last = Occurrence(after_last.period, a, b, why)
@@ -285,8 +306,17 @@ async def _follow_phases(
 
 
 async def _check_plant(c: AsyncConnection, body: TaskIn) -> None:
-    if body.plant_id and (await c.execute(select(plants.c.id).where(plants.c.id == body.plant_id))).first() is None:
-        raise invalid("plant_id", "unknown plant")
+    found = None
+    if body.plant_id:
+        found = (
+            await c.execute(
+                select(standorte.c.type).select_from(plants.join(standorte)).where(plants.c.id == body.plant_id)
+            )
+        ).first()
+        if found is None:
+            raise invalid("plant_id", "unknown plant")
+    if body.category in INDOOR_CATEGORIES and (found is None or found.type != INDOOR):
+        raise invalid("category", "only for indoor plants")  # the garden is not watered (F-CP-6)
 
 
 async def _one_task(c: AsyncConnection, tid: str, day: date) -> Task:
@@ -360,11 +390,13 @@ async def update_task(tid: str, body: TaskIn, c: Conn, day: Today) -> Task:
 
 
 async def _set_enabled(c: AsyncConnection, tid: str, enabled: bool, day: date) -> Task:
-    row = (await c.execute(select(tasks.c.retired).where(tasks.c.id == tid).with_for_update())).first()
+    row = (await c.execute(select(tasks).where(tasks.c.id == tid).with_for_update())).first()
     if row is None:
         raise not_found("task")
     if row.retired and enabled:  # its plan was replaced; the new plan has its own task
         raise ApiError(409, "task belongs to a replaced plan")
+    if enabled:  # the plant may have moved outside meanwhile
+        await _check_plant(c, TaskIn.model_validate({k: getattr(row, k) for k in TaskIn.model_fields}))
     await c.execute(update(tasks).where(tasks.c.id == tid).values(enabled=enabled))
     if enabled:
         await materialize(c, day, [tid])
@@ -488,7 +520,48 @@ async def undo(todo_id: str, c: Conn, day: Today) -> dict[str, Any]:
                 todos.c.postponed.is_(False),
             )
         )
-    await c.execute(update(todos).where(todos.c.id == todo_id).values(status="open", done_at=None))
+    await c.execute(update(todos).where(todos.c.id == todo_id).values(status="open", done_at=None, soil=None))
+    return await _todo(c, todo_id, day)
+
+
+SOIL_FACTOR = {"feucht": 1.2, "passt": 1.0, "trocken": 0.8}
+MIN_WATER, MAX_WATER = 2, 60
+
+
+def adjusted(days: int, soil: str) -> int:
+    """The next watering interval after "the soil was still moist / just right / bone dry": ±20 %,
+    at least one day, within 2..60 days."""
+    if soil == "feucht":
+        return max(days, min(MAX_WATER, max(days + 1, round(days * SOIL_FACTOR[soil]))))
+    if soil == "trocken":
+        return min(days, max(MIN_WATER, min(days - 1, round(days * SOIL_FACTOR[soil]))))
+    return days
+
+
+@router.post("/todos/{todo_id}/soil")
+async def soil_feedback(todo_id: str, body: SoilIn, c: Conn, day: Today) -> dict[str, Any]:
+    """After watering: how the soil was. Changes the rhythm in use now (winter or summer) once."""
+    claimed = await c.execute(  # first: exactly one answer per watering, also from two phones at once
+        update(todos)
+        .where(todos.c.id == todo_id, todos.c.status == "done", todos.c.soil.is_(None))
+        .values(soil=body.soil)
+        .returning(todos.c.task_id, todos.c.generation, todos.c.done_at)
+    )
+    done = claimed.first()
+    if done is None:
+        if (await c.execute(select(todos.c.id).where(todos.c.id == todo_id))).first() is None:
+            raise not_found("to-do")
+        raise ApiError(409, "only once, after watering")
+    row = (await c.execute(select(tasks).where(tasks.c.id == done.task_id).with_for_update())).one()
+    if row.category != "giessen" or row.recurrence != "interval" or row.generation != done.generation:
+        raise ApiError(409, "only once, after watering")  # rolls back the claim
+    field = rhythm_field(done.done_at.astimezone(TZ).date(), _timing(row))
+    new = adjusted(getattr(row, field), body.soil)
+    if new != getattr(row, field):  # the next one was planned with the old rhythm: plan it anew
+        await c.execute(update(tasks).where(tasks.c.id == row.id).values({field: new, "updated_at": datetime.now(UTC)}))
+        await c.execute(delete(todos).where(todos.c.task_id == row.id, todos.c.status == "open",
+                                            todos.c.postponed.is_(False), todos.c.note == ""))  # fmt: skip
+        await materialize(c, day, [row.id])
     return await _todo(c, todo_id, day)
 
 
@@ -567,7 +640,9 @@ async def legal_preview(body: TaskIn, c: Conn, day: Today) -> dict[str, Any]:
     """Notes and the next (possibly moved) window of a task that is being edited."""
     await _check_plant(c, body)
     q = select(plants.c.id.label("plant_id"), *FACTS).select_from(
-        plants.join(species, species.c.id == plants.c.species_id)
+        plants.join(species, species.c.id == plants.c.species_id).join(
+            standorte, standorte.c.id == plants.c.standort_id
+        )
     )
     row = (await c.execute(q.where(plants.c.id == body.plant_id))).first() if body.plant_id else None
     r = _Probe(body, row)
@@ -588,5 +663,5 @@ class _Probe:
     def __init__(self, body: TaskIn, plant: Any) -> None:
         self.__dict__.update(body.model_dump())
         self.plant_id = body.plant_id if plant is not None else None
-        for k in ("sp_woody", "sp_growth", "sp_latin", "pl_girth"):
+        for k in ("sp_woody", "sp_growth", "sp_latin", "pl_girth", "st_type"):
             setattr(self, k, getattr(plant, k) if plant is not None else None)

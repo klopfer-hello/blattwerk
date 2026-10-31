@@ -48,9 +48,13 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 export type Light = 'sonnig' | 'halbschattig' | 'schattig';
 export const STANDORT_TYPES = {
   beet: 'Beet', gemuesebeet: 'Gemüsebeet', rasen: 'Rasen', hecke: 'Hecke', kuebelplatz: 'Kübelplatz',
-  gewaechshaus: 'Gewächshaus', sonstiges: 'Sonstiges',
+  gewaechshaus: 'Gewächshaus', sonstiges: 'Sonstiges', zimmer: 'Zimmer',
 } as const;
 export type StandortType = keyof typeof STANDORT_TYPES;
+export const INDOOR_TYPE = 'zimmer';  // the one indoor type (M11): watering yes, weather rules no
+export const WINDOWS = { N: 'N', O: 'O', S: 'S', W: 'W', keins: 'keins' } as const;
+export const DISTANCES = { fensterbank: 'Fensterbank', bis_1m: 'bis 1 m', '1_2m': '1–2 m', raum: 'Raummitte' } as const;
+export const POT_MATERIALS = { kunststoff: 'Kunststoff', ton: 'Ton', keramik: 'Keramik', glas: 'Glas' } as const;
 export interface StandortIn { name: string; light: Light; type: StandortType; notes: string }
 export interface Standort extends StandortIn { id: string; plant_count: number }
 
@@ -59,12 +63,14 @@ export type Form = (typeof FORMS)[number];
 export interface PlantIn {
   species_id: string; cultivar_id: string | null; standort_id: string; nickname: string | null; form: Form | null;
   rootstock: string | null; planted_year: number | null; girth_cm: number | null; in_container: boolean; notes: string;
+  window_dir?: keyof typeof WINDOWS | null; window_distance?: keyof typeof DISTANCES | null;  // indoor only (M11)
+  pot_cm?: number | null; pot_material?: keyof typeof POT_MATERIALS | null;
 }
 export interface Plant extends Omit<PlantIn, 'species_id' | 'cultivar_id' | 'standort_id'> {
   id: string;
   species: { id: string; latin: string; german: string; growth: string; woody: boolean };
   cultivar: { id: string; name: string } | null;
-  standort: { id: string; name: string; light: Light | null };  // null: Standort deleted meanwhile
+  standort: { id: string; name: string; light: Light | null; type?: StandortType | null; indoor?: boolean };  // light null: Standort deleted
   archived: boolean;
 }
 export interface Candidate {
@@ -77,7 +83,9 @@ export const GROWTH = { baum: 'Baum', strauch: 'Strauch', hecke: 'Hecke', klette
 export const CATEGORIES = {
   schnitt: 'Schnitt', duengen: 'Düngen', ernte: 'Ernte', pflanzenschutz: 'Pflanzenschutz',
   winterschutz: 'Winterschutz', aussaat: 'Aussaat', sonstiges: 'Sonstiges',
+  giessen: 'Gießen', bespruehen: 'Besprühen', entstauben: 'Entstauben',
 } as const;
+export const INDOOR_CATEGORIES: readonly Category[] = ['giessen', 'bespruehen', 'entstauben'];  // indoor plants only
 export type Category = keyof typeof CATEGORIES;
 export type Recurrence = 'once' | 'yearly' | 'interval';
 export type CutType = 'pflege' | 'stark';
@@ -85,6 +93,7 @@ export interface LegalNote { code: string; severity: 'info' | 'warn'; text: stri
 export interface TaskIn {
   plant_id: string | null; title: string; category: Category; cut_type: CutType | null; instructions: string; recurrence: Recurrence;
   due_date: string | null; month_from: number | null; month_to: number | null; interval_days: number | null;
+  winter_interval_days?: number | null;  // Nov–Feb (interval only, M11)
   start_date: string | null; urgent: boolean;
   pheno_phase?: PhaseKey | null; pheno_offset?: number; pheno_window?: number;  // follow the season (yearly only)
 }
@@ -147,10 +156,12 @@ export interface Picked { species_id: string; cultivar_id: string | null; latin:
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
   note: string; done_at: string | null; legal_adjustment: string | null; notes: LegalNote[];
+  soil?: Soil | null;  // watering: how the soil was (once)
   blocked_until: string | null;  // strong cut not allowed today (§ 39): first allowed day
   task: { id: string; title: string; category: Category; urgent: boolean; instructions: string; recurrence: Recurrence };
   plant: { id: string; title: string } | null;
 }
+export type Soil = 'feucht' | 'passt' | 'trocken';
 export interface Heute { year: number; month: number; open: Todo[]; done: Todo[] }
 export interface CalendarEntry { task_id: string; title: string; category: Category; urgent: boolean; moved: boolean; plant: { id: string; title: string } | null }
 
@@ -176,7 +187,7 @@ export const api = {
   deleteChat: (id: string) => request<unknown>('DELETE', `/chats/${enc(id)}`),
   confirmAction: (id: string) => request<unknown>('POST', `/chat-actions/${enc(id)}/confirm`),
   rejectAction: (id: string) => request<unknown>('POST', `/chat-actions/${enc(id)}/reject`),
-  askNames: (q: string) => request<{ job_id: string }>('POST', '/species/ai', { q }),
+  askNames: (q: string, photo_ids: string[] = []) => request<{ job_id: string }>('POST', '/species/ai', { q, photo_ids }),
   nameJob: (id: string) => request<NameJob>('GET', `/species/ai/${enc(id)}`),
   pickName: (id: string, index: number) => request<Picked>('POST', `/species/ai/${enc(id)}/pick`, { index }),
   species: (id: string) => request<Species>('GET', `/species/${enc(id)}`),
@@ -200,6 +211,7 @@ export const api = {
   todo: (id: string) => request<Todo>('GET', `/todos/${enc(id)}`),
   done: (id: string, note?: string) => request<Todo>('POST', `/todos/${enc(id)}/done`, note === undefined ? {} : { note }),
   skip: (id: string, note?: string) => request<Todo>('POST', `/todos/${enc(id)}/skip`, note === undefined ? {} : { note }),
+  soil: (id: string, soil: Soil) => request<Todo>('POST', `/todos/${enc(id)}/soil`, { soil }),
   undo: (id: string) => request<Todo>('POST', `/todos/${enc(id)}/undo`),
   postpone: (id: string, to: string) => request<Todo>('POST', `/todos/${enc(id)}/postpone`, { to }),
   pushKey: () => request<{ public_key: string | null }>('GET', '/push/key'),

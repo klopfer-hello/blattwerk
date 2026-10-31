@@ -14,7 +14,7 @@
 import json
 import re
 import uuid
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Annotated, Any, Literal
 
@@ -25,15 +25,24 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from garten_planer.claude_cli import ClaudeError
 from garten_planer.models import TaskIn
 from garten_planer.names import clamp_hardiness
-from garten_planer.schema import care_plans, plants, species, tasks, todos
+from garten_planer.schema import INDOOR, INDOOR_CATEGORIES, care_plans, plants, species, standorte, tasks, todos
 
-PROMPT_VERSION = "plan-3"  # plan-2: phenological triggers (M7)
+PROMPT_VERSION = "plan-4"  # plan-2: phenological triggers (M7); plan-4: indoor plants (M11)
 WATERING = re.compile(r"gie(ß|ss)|w(ä|ae)ssern|bew(ä|ae)sser|wassergabe|tr(ä|ae)nken|einschl(ä|ae)mmen", re.IGNORECASE)
 # A cut the AI filed under another category must still meet § 39 (legal rules are code, not prompt).
 CUTTING = re.compile(
     r"schneid|schnitt|r(ü|ue)ckschn|stutz|auslicht|verj(ü|ue)ng|roden|rodung|f(ä|ae)ll|auf den stock", re.IGNORECASE
 )
-CATEGORIES = ["schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges"]
+CATEGORIES = [
+    "schnitt",
+    "duengen",
+    "ernte",
+    "pflanzenschutz",
+    "winterschutz",
+    "aussaat",
+    "sonstiges",
+    *INDOOR_CATEGORIES,
+]
 
 SYSTEM = """Du bist erfahrene Gärtnerin/Gärtnermeister für Hausgärten in Deutschland und erstellst einen Pflegeplan
 für genau eine Pflanze. Antworte ausschließlich im vorgegebenen JSON-Format, alle Texte auf Deutsch, kurz und
@@ -66,6 +75,33 @@ Regeln:
   null, wenn unklar.
 - Anleitungen als kurze Schritte; "why" in einem Satz. Höchstens 12 Aufgaben, nur das Wichtige."""
 
+SYSTEM_INDOOR = """Du bist erfahrene Zimmerpflanzen-Gärtnerin und erstellst einen Pflegeplan für genau eine
+Zimmerpflanze in einer Wohnung in Deutschland. Antworte ausschließlich im vorgegebenen JSON-Format, alle Texte auf
+Deutsch, kurz und handlungsorientiert.
+
+Regeln:
+- Gießen als eigene Aufgabe: category "giessen", recurrence "interval", "interval_days" (Frühling bis Herbst) und
+  "winter_interval_days" (November bis Februar, meist länger). Richte die Tage nach Art, Licht (Fensterrichtung,
+  Abstand zum Fenster), Topfgröße und Topfmaterial (Ton trocknet schneller als Kunststoff) und Heizungsluft im
+  Winter. Sukkulenten und Kakteen deutlich seltener, Farne und Calathea öfter. In "instructions" wie viel und woran
+  man erkennt, dass es Zeit ist (Fingerprobe, Topfgewicht), und Staunässe vermeiden.
+- Besprühen (category "bespruehen", Intervall in Tagen): für Pflanzen, die hohe Luftfeuchte mögen (Farne,
+  Calathea, Orchideen-Luftwurzeln, Tillandsien, viele Tropenpflanzen), im Winter bei Heizungsluft öfter
+  ("winter_interval_days" kürzer). NICHT bei Sukkulenten, Kakteen und behaarten oder samtigen Blättern (Usambara-
+  veilchen): dann keine Besprüh-Aufgabe. Anleitung: kalkarmes, zimmerwarmes Wasser, morgens, nicht in die Sonne.
+- Entstauben (category "entstauben", Intervall in Tagen, meist 30-60): für Pflanzen mit glatten Blättern (Monstera,
+  Ficus, Gummibaum, Zamioculcas, Palmen); Anleitung: feuchtes Tuch oder lauwarm abduschen, Blattunterseiten auf
+  Schädlinge prüfen; bei behaarten Blättern nur mit weichem Pinsel.
+- Wiederkehrende Pflege als Intervall in Tagen: Düngen nur in der Wachstumszeit (month_from 3 oder 4 bis month_to 8
+  oder 9 setzen), Topf drehen, Umtopfen alle n Jahre (z. B. 730 oder 1095 Tage). Einmal im Jahr zu einem festen
+  Zeitpunkt: recurrence "yearly" mit Monatsfenster.
+- Düngen: flüssiger Grün- oder Kakteendünger, Menge und 2-3 Markenbeispiele (z. B. Compo, Substral, Seramis).
+- Schädlinge: typische für Zimmerpflanzen (Spinnmilben, Trauermücken, Woll- und Schmierläuse, Thripse) mit
+  Vorbeugung, Kontrolle und Behandlung, zuerst mechanisch/biologisch.
+- Keine Frost-, Garten- oder Schnittaufgaben nach Gartenkalender, keine "pheno_phase". "cut_type" nur bei
+  category "schnitt" ("pflege"), sonst null. "winterhaerte_c": null.
+- Anleitungen als kurze Schritte; "why" in einem Satz. Höchstens 8 Aufgaben, nur das Wichtige."""
+
 
 S20 = Annotated[str, Field(max_length=20)]
 S40 = Annotated[str, Field(max_length=40)]
@@ -87,12 +123,16 @@ class _SchemaProduct(BaseModel):
 
 class _SchemaTask(BaseModel):
     title: S120
-    category: Literal["schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges"]
+    category: Literal[
+        "schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges", "giessen",
+        "bespruehen", "entstauben",
+    ]  # fmt: skip
     cut_type: Literal["pflege", "stark"] | None
     recurrence: Literal["yearly", "interval"]
     month_from: int | None
     month_to: int | None
     interval_days: int | None
+    winter_interval_days: int | None
     pheno_phase: (
         Literal[
             "vorfruehling",
@@ -192,9 +232,34 @@ class PlanFacts:
     bundesland: str | None
     fertiliser: str
     eco_defaults: bool
+    window: str | None = None  # indoor plants (M11)
+    window_distance: str | None = None
+    pot_cm: int | None = None
+    pot_material: str | None = None
+
+    @property
+    def indoor(self) -> bool:
+        return self.standort_type == INDOOR
+
+
+def system_for(f: PlanFacts) -> str:
+    return SYSTEM_INDOOR if f.indoor else SYSTEM
 
 
 def build_prompt(f: PlanFacts) -> str:
+    if f.indoor:
+        room = {
+            "art_latein": f.latin,
+            "art_deutsch": f.german,
+            "sorte": f.cultivar or "unbekannt",
+            "licht_im_raum": f.light,
+            "fenster": f.window or "unbekannt",
+            "abstand_zum_fenster": f.window_distance or "unbekannt",
+            "topf_cm": f.pot_cm,
+            "topf_material": f.pot_material or "unbekannt",
+            "duenger_vorliebe": f.fertiliser,
+        }
+        return "Erstelle den Pflegeplan für diese Zimmerpflanze:\n" + json.dumps(room, ensure_ascii=False, indent=2)
     facts = {
         "art_latein": f.latin,
         "art_deutsch": f.german,
@@ -266,6 +331,13 @@ def _int(v: Any, low: int, high: int, default: int) -> int:
     return min(high, max(low, v)) if isinstance(v, int) and not isinstance(v, bool) else default
 
 
+def _winter(t: dict[str, Any]) -> dict[str, Any]:
+    """Indoor watering: the winter interval, clamped like the summer one; only for interval tasks."""
+    if t.get("recurrence") != "interval" or not isinstance(t.get("winter_interval_days"), int):
+        return {}
+    return {"winter_interval_days": _int(t["winter_interval_days"], 1, 3650, 1)}
+
+
 def _trigger(t: dict[str, Any]) -> dict[str, Any]:
     """The phenological trigger, checked on its own: a bad one is dropped, not the task (the
     month window stays); offset and window are clamped to what TaskIn allows."""
@@ -275,7 +347,9 @@ def _trigger(t: dict[str, Any]) -> dict[str, Any]:
             "pheno_window": _int(t.get("pheno_window"), 1, 60, 14)}  # fmt: skip
 
 
-def sanitize(raw: dict[str, Any]) -> Plan:
+def sanitize(raw: dict[str, Any], indoor: bool = False) -> Plan:
+    """Indoor (M11): watering stays (as "giessen"), no phenological triggers; the garden never
+    gets watering (F-CP-6)."""
     try:
         a = _Answer.model_validate(raw)
     except ValidationError:
@@ -283,11 +357,23 @@ def sanitize(raw: dict[str, Any]) -> Plan:
     kept: list[PlanTask] = []
     dropped = 0
     for t in a.tasks:
-        if not isinstance(t, dict) or WATERING.search(f"{t.get('title', '')} {t.get('category', '')}"):
-            dropped += 1  # never watering (F-CP-6), whatever the category
+        if not isinstance(t, dict):
+            dropped += 1
+            continue
+        waters = bool(WATERING.search(f"{t.get('title', '')} {t.get('category', '')}"))
+        if waters and not indoor:
+            dropped += 1  # never watering in the garden (F-CP-6), whatever the category
             continue
         fields = {k: t.get(k) for k in ("title", "category", "recurrence", "month_from", "month_to", "interval_days")}
-        fields |= _trigger(t)
+        if indoor:
+            fields |= _winter(t)
+            if waters and fields["category"] in (None, "sonstiges") and WATERING.search(str(fields["title"] or "")):
+                fields["category"] = "giessen"
+        else:
+            fields |= _trigger(t)
+            if fields["category"] in INDOOR_CATEGORIES:
+                dropped += 1
+                continue
         if fields["category"] not in ("schnitt", "ernte") and CUTTING.search(str(fields["title"] or "")):
             fields["category"] = "schnitt"
         cut = t.get("cut_type")
@@ -312,8 +398,14 @@ def sanitize(raw: dict[str, Any]) -> Plan:
 
 
 async def apply_plan(c: AsyncConnection, plant_id: str, plan: Plan, info: dict[str, Any]) -> tuple[str, list[str]]:
-    """Store the plan and its tasks; returns (plan id, new task ids). The caller materializes."""
+    """Store the plan and its tasks; returns (plan id, new task ids). The caller materializes.
+    The plant may have moved in or out during the AI run: indoor-only tasks are kept only indoors."""
     stamp = datetime.now(UTC)
+    where = (
+        await c.execute(select(standorte.c.type).select_from(plants.join(standorte)).where(plants.c.id == plant_id))
+    ).scalar()
+    if where != INDOOR:
+        plan = replace(plan, tasks=[t for t in plan.tasks if t.category not in INDOOR_CATEGORIES])
     plan_id = uuid.uuid4().hex
     await c.execute(
         insert(care_plans).values(

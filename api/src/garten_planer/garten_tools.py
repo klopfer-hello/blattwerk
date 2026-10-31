@@ -21,6 +21,8 @@ from garten_planer.models import GardenSettings, TaskIn, known_fields
 from garten_planer.plan import CUTTING, WATERING, dry
 from garten_planer.routes.todos import TZ
 from garten_planer.schema import (
+    INDOOR,
+    INDOOR_CATEGORIES,
     care_plans,
     chat_actions,
     cultivars,
@@ -80,7 +82,7 @@ async def ueberblick(c: AsyncConnection, today: date) -> dict[str, Any]:
         "bundesland": g.location.bundesland,
         "jahreszeit": await _season(c, today),
         "standorte": [
-            {"name": s.name, "licht": s.light, "typ": s.type,
+            {"name": s.name, "licht": s.light, "typ": s.type, "drinnen": s.type == INDOOR,
              "pflanzen": [_plant(r) for r in rows if r.standort_id == s.id]}
             for s in sites
         ],
@@ -178,13 +180,19 @@ async def _propose(c: AsyncConnection, message_id: str, kind: str, payload: dict
     return {"vorgeschlagen": True, "hinweis": "Der Nutzer bestätigt oder verwirft den Vorschlag in der App."}
 
 
-def check_task(payload: dict[str, Any], today: date) -> TaskIn | str:
-    """The rules for a chat task, used when proposing and again when confirming: no watering,
+def check_task(payload: dict[str, Any], today: date, indoor: bool = False) -> TaskIn | str:
+    """The rules for a chat task, used when proposing and again when confirming: watering only
+    for an indoor plant (M11),
     a date from today to 13 months ahead, a cut always goes through § 39 (strong unless the
     proposal says gentle), and whatever TaskIn requires."""
     title = str(payload.get("title", ""))
-    if WATERING.search(title):
-        return "Gießaufgaben legt die App nicht an."
+    if WATERING.search(title) or payload.get("category") == "giessen":
+        if not indoor:
+            return "Gießaufgaben gibt es nur für Zimmerpflanzen; der Garten wird nicht über die App gegossen."
+        if payload.get("category") in (None, "sonstiges"):
+            payload = payload | {"category": "giessen"}
+    if payload.get("category") in INDOOR_CATEGORIES and not indoor:
+        return "Besprühen und Entstauben gibt es nur für Zimmerpflanzen."
     payload = payload | {"instructions": dry(str(payload.get("instructions", "")))}
     if payload.get("category") != "ernte" and CUTTING.search(title):
         payload = payload | {"category": "schnitt"}
@@ -199,6 +207,13 @@ def check_task(payload: dict[str, Any], today: date) -> TaskIn | str:
     if task.due_date is None or not (today <= task.due_date <= today + timedelta(days=400)):
         return "Datum muss heute oder in den nächsten 13 Monaten liegen."
     return task
+
+
+async def indoor_plant(c: AsyncConnection, plant_id: str | None) -> bool:
+    if not plant_id:
+        return False
+    found = await c.execute(select(standorte.c.type).select_from(plants.join(standorte)).where(plants.c.id == plant_id))
+    return found.scalar() == INDOOR
 
 
 async def active_plant(c: AsyncConnection, plant_id: str) -> bool:
@@ -217,7 +232,7 @@ async def aufgabe_vorschlagen(
         return {"fehler": "Datum als JJJJ-MM-TT."}
     payload = {"title": titel, "category": kategorie, "due_date": day, "instructions": anleitung[:4000],
                "plant_id": pflanze_id or None, "cut_type": schnitt_art}  # fmt: skip
-    task = check_task(payload, today)
+    task = check_task(payload, today, await indoor_plant(c, pflanze_id or None))
     if isinstance(task, str):
         return {"fehler": task}
     if task.plant_id and not await active_plant(c, task.plant_id):

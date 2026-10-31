@@ -22,7 +22,7 @@ const ACTION_ERR: Record<string, string> = {
 const ASK_422 = 'Ein Foto ist abgelaufen oder schon verschickt – bitte neu auswählen.';
 const errText = (e: unknown) => (e instanceof ApiError ? ASK_ERR[e.status] ?? (e.status === 422 && e.fields.photo_ids ? ASK_422 : e.message) : 'Server nicht erreichbar.');
 const actionErr = (e: unknown) => (e instanceof ApiError ? ACTION_ERR[e.message] ?? (e.status === 409 ? 'Das geht so nicht mehr (Datum vorbei?).' : e.message) : 'Server nicht erreichbar.');
-const CATEGORY_DE: Record<string, string> = { schnitt: 'Schnitt', duengen: 'Düngen', ernte: 'Ernte', pflanzenschutz: 'Pflanzenschutz', winterschutz: 'Winterschutz', aussaat: 'Aussaat', sonstiges: 'Sonstiges' };
+const CATEGORY_DE: Record<string, string> = { schnitt: 'Schnitt', duengen: 'Düngen', ernte: 'Ernte', pflanzenschutz: 'Pflanzenschutz', winterschutz: 'Winterschutz', aussaat: 'Aussaat', sonstiges: 'Sonstiges', giessen: 'Gießen', bespruehen: 'Besprühen', entstauben: 'Entstauben' };
 
 // **fett** and "- " lists, nothing else: the answer is text from the AI, rendered as text (no HTML).
 function Rich({ text }: { text: string }) {

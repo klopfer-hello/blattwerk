@@ -8,7 +8,7 @@ from datetime import UTC, datetime
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Depends, Query, Request
-from sqlalchemy import Row, Select, exists, insert, select, update
+from sqlalchemy import Row, Select, delete, exists, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
 from garten_planer.catalog import ready
@@ -16,7 +16,17 @@ from garten_planer.db import Conn
 from garten_planer.errors import invalid, not_found
 from garten_planer.models import Plant, PlantIn
 from garten_planer.routes.plans import queue_plan
-from garten_planer.schema import cultivars, diagnoses, plants, species, standorte, tasks, todos
+from garten_planer.schema import (
+    INDOOR,
+    INDOOR_CATEGORIES,
+    cultivars,
+    diagnoses,
+    plants,
+    species,
+    standorte,
+    tasks,
+    todos,
+)
 
 router = APIRouter(dependencies=[Depends(ready)])
 
@@ -31,6 +41,7 @@ _query: Select[Any] = (
         cultivars.c.name.label("cultivar_name"),
         standorte.c.name.label("standort_name"),
         standorte.c.light,
+        standorte.c.type.label("standort_type"),
     )
     .join(species, species.c.id == plants.c.species_id)
     .join(standorte, standorte.c.id == plants.c.standort_id)
@@ -51,13 +62,21 @@ def _out(r: Row[Any]) -> Plant:
                 "woody": r.woody,
             },
             "cultivar": {"id": r.cultivar_id, "name": r.cultivar_name} if r.cultivar_id else None,
-            "standort": {"id": r.standort_id, "name": r.standort_name, "light": r.light},
+            "standort": {
+                "id": r.standort_id,
+                "name": r.standort_name,
+                "light": r.light,
+                "type": r.standort_type,
+                "indoor": r.standort_type == INDOOR,
+            },
             "archived": r.archived_at is not None,
         }
     )
 
 
-async def _check_refs(c: AsyncConnection, body: PlantIn) -> None:
+async def _check_refs(c: AsyncConnection, body: PlantIn) -> bool:
+    """Checks the references; returns whether the plant is indoors (its Standort is a Zimmer)."""
+
     async def has(stmt: Any) -> bool:
         return bool((await c.execute(select(exists(stmt)))).scalar())
 
@@ -67,8 +86,12 @@ async def _check_refs(c: AsyncConnection, body: PlantIn) -> None:
         select(cultivars.c.id).where(cultivars.c.id == body.cultivar_id, cultivars.c.species_id == body.species_id)
     ):
         raise invalid("cultivar_id", "unknown Sorte for this species")
-    if not await has(select(standorte.c.id).where(standorte.c.id == body.standort_id)):
+    found = (await c.execute(select(standorte.c.type).where(standorte.c.id == body.standort_id))).first()
+    if found is None:
         raise invalid("standort_id", "unknown Standort")
+    if found.type != INDOOR and body.indoor_fields():
+        raise invalid("window_dir", "window and pot only for indoor plants")
+    return bool(found.type == INDOOR)
 
 
 async def _one(c: AsyncConnection, pid: str) -> Plant:
@@ -104,14 +127,35 @@ async def create_plant(body: PlantIn, c: Conn, request: Request) -> Plant:
 
 @router.put("/plants/{pid}")
 async def update_plant(pid: str, body: PlantIn, c: Conn, request: Request) -> Plant:
-    old = (await c.execute(select(plants.c.species_id, plants.c.cultivar_id).where(plants.c.id == pid))).first()
+    old = (
+        await c.execute(
+            select(
+                plants.c.species_id,
+                plants.c.cultivar_id,
+                plants.c.window_dir,
+                plants.c.window_distance,
+                plants.c.pot_cm,
+                plants.c.pot_material,
+                standorte.c.type,
+            )
+            .join(standorte, standorte.c.id == plants.c.standort_id)
+            .where(plants.c.id == pid)
+        )
+    ).first()
     if old is None:
         raise not_found("plant")
-    await _check_refs(c, body)
+    indoor = await _check_refs(c, body)
     await c.execute(
         update(plants).where(plants.c.id == pid).values(body.model_dump() | {"updated_at": datetime.now(UTC)})
     )
-    if (old.species_id, old.cultivar_id) != (body.species_id, body.cultivar_id):  # another plant now: new plan
+    moved = (old.type == INDOOR) != indoor
+    if moved and not indoor:  # moved outside: the garden is not watered (F-CP-6); history stays
+        watering = select(tasks.c.id).where(tasks.c.plant_id == pid, tasks.c.category.in_(INDOOR_CATEGORIES))
+        await c.execute(update(tasks).where(tasks.c.id.in_(watering)).values(enabled=False))
+        await c.execute(delete(todos).where(todos.c.task_id.in_(watering), todos.c.status == "open"))
+    room = ("window_dir", "window_distance", "pot_cm", "pot_material")  # light and pot set the watering rhythm
+    changed_room = indoor and any(getattr(old, k) != getattr(body, k) for k in room)
+    if moved or changed_room or (old.species_id, old.cultivar_id) != (body.species_id, body.cultivar_id):
         await queue_plan(c, pid, request.app.state.config.plan_daily_limit)
     return await _one(c, pid)
 

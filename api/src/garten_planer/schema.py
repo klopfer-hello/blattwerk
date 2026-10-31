@@ -33,7 +33,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 GROWTH = ("baum", "strauch", "hecke", "kletterpflanze", "kuebel", "staude", "gras", "knolle", "gemuese", "kraut",
           "einjaehrig")  # fmt: skip
 LIGHT = ("sonnig", "halbschattig", "schattig")
-STANDORT_TYPE = ("beet", "gemuesebeet", "rasen", "hecke", "kuebelplatz", "gewaechshaus", "sonstiges")
+STANDORT_TYPE = ("beet", "gemuesebeet", "rasen", "hecke", "kuebelplatz", "gewaechshaus", "sonstiges", "zimmer")
+INDOOR = "zimmer"  # the one indoor type (M11): watering yes; weather, frost, phenology and § 39 no
+WINDOW = ("N", "O", "S", "W", "keins")
+WINDOW_DISTANCE = ("fensterbank", "bis_1m", "1_2m", "raum")
+POT_MATERIAL = ("kunststoff", "ton", "keramik", "glas")
 
 
 def _in(column: str, values: tuple[str, ...]) -> str:
@@ -116,6 +120,10 @@ plants = Table(
     Column("planted_year", Integer),
     Column("girth_cm", Integer),
     Column("in_container", Boolean, nullable=False),
+    Column("window_dir", Text),  # indoor only (M11): direction of the nearest window
+    Column("window_distance", Text),
+    Column("pot_cm", SmallInteger),
+    Column("pot_material", Text),
     Column("notes", Text, nullable=False),
     Column("archived_at", DateTime(timezone=True)),
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -128,10 +136,16 @@ plants = Table(
     ),
     Index("ix_plants_standort_id", "standort_id"),
     Index("ix_plants_archived_at", "archived_at"),
+    CheckConstraint(_in("window_dir", WINDOW), name="window_dir"),
+    CheckConstraint(_in("window_distance", WINDOW_DISTANCE), name="window_distance"),
+    CheckConstraint("pot_cm BETWEEN 3 AND 200", name="pot_cm"),
+    CheckConstraint(_in("pot_material", POT_MATERIAL), name="pot_material"),
 )
 
-# No watering category: garden plants never get watering tasks (F-CP-6); indoor plants (M11) will add it.
-TASK_CATEGORY = ("schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges")
+# Watering, misting and dusting only for indoor plants (M11); garden plants never get watering (F-CP-6).
+INDOOR_CATEGORIES = ("giessen", "bespruehen", "entstauben")  # checked in the routes
+TASK_CATEGORY = ("schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges",
+                 *INDOOR_CATEGORIES)  # fmt: skip
 TASK_SOURCE = ("manual", "plan", "chat", "alert", "diagnosis")
 
 tasks = Table(
@@ -148,6 +162,7 @@ tasks = Table(
     Column("month_from", SmallInteger),
     Column("month_to", SmallInteger),
     Column("interval_days", Integer),
+    Column("winter_interval_days", Integer),  # interval in Nov-Feb (indoor watering, M11)
     Column("start_date", Date),
     Column("pheno_phase", Text),  # F-WX-3: window from this phase start (M7); month window = fallback
     Column("pheno_offset", SmallInteger, nullable=False, server_default="0"),
@@ -183,6 +198,10 @@ tasks = Table(
         " OR (recurrence = 'interval' AND interval_days > 0)",
         name="timing",
     ),
+    CheckConstraint(
+        "winter_interval_days IS NULL OR (recurrence = 'interval' AND winter_interval_days > 0)",
+        name="winter_interval",
+    ),
 )
 
 todos = Table(
@@ -197,6 +216,7 @@ todos = Table(
     Column("status", Text, nullable=False),
     Column("done_at", DateTime(timezone=True)),
     Column("note", Text, nullable=False),
+    Column("soil", Text),  # watering (M11): how the soil was before; adjusted the interval once
     Column("postponed", Boolean, nullable=False),
     Column("notified_at", DateTime(timezone=True)),  # included in a push digest (sent once)
     Column("legal_adjustment", Text),  # why the window was moved or shortened (legal.py), shown to the user
@@ -205,6 +225,7 @@ todos = Table(
     # occurrences (history) never block new ones and are never renamed or deleted
     UniqueConstraint("task_id", "generation", "period", name="uq_todos_task_period"),
     CheckConstraint(_in("status", ("open", "done", "skipped")), name="status"),
+    CheckConstraint(_in("soil", ("feucht", "passt", "trocken")), name="soil"),
     CheckConstraint("due_to >= due_from", name="window"),
     CheckConstraint("(status = 'open') = (done_at IS NULL)", name="done_at"),
     Index("ix_todos_status_due_from", "status", "due_from"),
@@ -288,6 +309,7 @@ name_jobs = Table(  # AI name suggestions (F-AI-3): the typed name in, candidate
     metadata,
     Column("id", Text, primary_key=True),
     Column("query", Text, nullable=False),
+    Column("photo_ids", JSONB, nullable=False, server_default=text("'[]'::jsonb")),  # plant ID by photo (M11)
     Column("status", Text, nullable=False),
     Column("error", Text),
     Column("candidates", JSONB, nullable=False, server_default=text("'[]'::jsonb")),

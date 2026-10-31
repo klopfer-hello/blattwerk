@@ -18,8 +18,9 @@ PROMPT_VERSION = "names-3"
 MAX_CANDIDATES = 5
 FORMS: tuple[str, ...] = Form.__args__  # type: ignore[attr-defined]
 
-SYSTEM = """Du bestimmst Gartenpflanzen aus dem, was jemand eintippt: deutsche oder lateinische Namen, Abkürzungen,
-Handelsnamen, Tippfehler, oft mit Sorte und Wuchsform (z. B. "Prunus AV. Celeste Säule", "Felsenbrine Obelisk").
+SYSTEM = """Du bestimmst Garten- und Zimmerpflanzen aus dem, was jemand eintippt oder fotografiert: deutsche oder
+lateinische Namen, Abkürzungen, Handelsnamen, Tippfehler, oft mit Sorte und Wuchsform (z. B. "Prunus AV. Celeste
+Säule", "Felsenbrine Obelisk").
 Antworte ausschließlich im vorgegebenen JSON-Format.
 
 - Bis zu 5 Kandidaten, der wahrscheinlichste zuerst. Kein Kandidat, wenn du es nicht weißt.
@@ -102,7 +103,11 @@ class _SchemaAnswer(BaseModel):
 SCHEMA: dict[str, Any] = _SchemaAnswer.model_json_schema()
 
 
-def build_prompt(query: str) -> str:
+def build_prompt(query: str, photos: int = 0) -> str:
+    if photos:  # plant ID by photo (M11): the photos come as image blocks
+        hint = f"\nHinweis des Nutzers: {query}" if query else ""
+        return (f"Welche Pflanze ist auf dem Foto{'s' if photos == 1 else ''} zu sehen? Bestimme die Art (und die "
+                f"Sorte nur, wenn sie eindeutig erkennbar ist); in \"note\" wie sicher du bist.{hint}")  # fmt: skip
     return f"Welche Pflanze ist gemeint?\nEingabe: {query}"
 
 

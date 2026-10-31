@@ -4,10 +4,11 @@
 // plants (links from the still-demo Heute/Kalender) render as DemoPlantDetail.
 import { useEffect, useRef, useState } from 'react';
 import {
-  ApiError, FORMS, GROWTH, STANDORT_TYPES, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
+  ApiError, DISTANCES, FORMS, GROWTH, INDOOR_TYPE, POT_MATERIALS, STANDORT_TYPES, WINDOWS, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
   type HistoryItem, type PlanState, type Standort, type Task,
 } from '../api';
 import { PhotoThumbs } from '../components/Photos';
+import { uploadPhoto } from '../photos';
 import { MONTHS, plantById, standortById } from '../mock/data';
 import { Back, Chip, Icon, Legal, TaskChip, timingText, Waiting } from '../components/ui';
 
@@ -131,7 +132,12 @@ export function PlantDetail({ id }: { id: string }) {
     setBusy(true); setError(null);
     try { setP(await (p.archived ? api.restorePlant(p.id) : api.archivePlant(p.id))); } catch (e) { setError(fail(e)); } finally { setBusy(false); }
   }
-  const facts = [
+  const facts = p.standort.indoor ? [
+    ['Zimmer', `${p.standort.name} · ${p.standort.light}`],
+    ['Fenster', p.window_dir ? (p.window_dir === 'keins' ? 'keins' : `${p.window_dir}${p.window_distance ? `, ${DISTANCES[p.window_distance]}` : ''}`) : '–'],
+    ['Topf', p.pot_cm || p.pot_material ? [p.pot_cm ? `${p.pot_cm} cm` : '', p.pot_material ? POT_MATERIALS[p.pot_material] : ''].filter(Boolean).join(' ') : '–'],
+    ['Seit', p.planted_year?.toString() ?? '–'],
+  ] : [
     ['Standort', `${p.standort.name} · ${p.standort.light}`], ['Form', p.form ?? '–'], ['Gepflanzt', p.planted_year?.toString() ?? '–'],
     ['Im Kübel', p.in_container ? 'ja' : 'nein'], ...(p.rootstock ? [['Unterlage', p.rootstock]] : []),
     ...(p.girth_cm ? [['Stammumfang', `${p.girth_cm} cm`]] : []),
@@ -176,7 +182,7 @@ export function PlantDetail({ id }: { id: string }) {
         )), <span key="note" className="tiny">Vorschläge der KI. Pflanzenschutzmittel nur mit Zulassung für Haus- und Kleingarten verwenden – Etikett und Anwendungsbestimmungen beachten.</span>]
         : <p className="box">Typische Schädlinge und Krankheiten stehen hier, sobald es einen Pflegeplan gibt.</p>)}
       {tab === 'history' && <PlantHistory plantId={p.id} />}
-      {p.species.woody && <span className="tiny">Gehölz: starke Rückschnitte nur 1.10.–28.2. (§ 39 BNatSchG).</span>}
+      {p.species.woody && !p.standort.indoor && <span className="tiny">Gehölz: starke Rückschnitte nur 1.10.–28.2. (§ 39 BNatSchG).</span>}
       <SpeciesTraitsBox id={p.species.id} onSaved={() => api.plant(id).then(setP, () => undefined)} />
     </div>
   );
@@ -312,7 +318,7 @@ export function PlantForm({ id }: { id?: string }) {
   useEffect(() => {
     if (!id) return;
     api.plant(id).then((p) => {
-      setV({ species_id: p.species.id, cultivar_id: p.cultivar?.id ?? null, standort_id: p.standort.id, nickname: p.nickname, form: p.form, rootstock: p.rootstock, planted_year: p.planted_year, girth_cm: p.girth_cm, in_container: p.in_container, notes: p.notes });
+      setV({ species_id: p.species.id, cultivar_id: p.cultivar?.id ?? null, standort_id: p.standort.id, nickname: p.nickname, form: p.form, rootstock: p.rootstock, planted_year: p.planted_year, girth_cm: p.girth_cm, in_container: p.in_container, notes: p.notes, window_dir: p.window_dir ?? null, window_distance: p.window_distance ?? null, pot_cm: p.pot_cm ?? null, pot_material: p.pot_material ?? null });
       setPicked({ label: p.species.german, latin: p.species.latin });
     }, (e) => setError(fail(e)));
   }, [id]);
@@ -363,6 +369,18 @@ export function PlantForm({ id }: { id?: string }) {
       setAiError(fail(e).status === 429 ? 'Gerade oder heute schon sehr viele KI-Suchen. Bitte später nochmal.' : fail(e).message);
     } finally { setAiAsking(false); }
   }
+  async function identify(files: FileList | null) {   // plant ID by photo (M11): same AI lookup, with a photo
+    const f = files?.[0];
+    if (!f || aiAsking) return;
+    setAiAsking(true); setAiError(null); setQuery('');
+    try {
+      const pid = await uploadPhoto(f);
+      const { job_id } = await api.askNames('', [pid]);
+      setAi({ id: job_id, query: '', status: 'queued', error: null, candidates: [] });
+    } catch (e) {
+      setAiError(fail(e).status === 429 ? 'Gerade oder heute schon sehr viele KI-Suchen. Bitte später nochmal.' : fail(e).message);
+    } finally { setAiAsking(false); }
+  }
   async function pickAi(index: number) {
     if (!ai) return;
     try {
@@ -388,12 +406,14 @@ export function PlantForm({ id }: { id?: string }) {
       if (!cultivarId && newSorte.trim() && v.species_id) {   // the API returns an existing Sorte in any spelling
         cultivarId = (await api.createCultivar(v.species_id, newSorte.trim())).id;
       }
-      const body = { ...v, cultivar_id: cultivarId };
+      const body = indoor ? { ...v, cultivar_id: cultivarId, in_container: true }
+        : { ...v, cultivar_id: cultivarId, window_dir: null, window_distance: null, pot_cm: null, pot_material: null };
       const p = id ? await api.updatePlant(id, body) : await api.createPlant(body);
       window.location.hash = `#/pflanze/${p.id}`;
     } catch (e) { setError(fail(e)); } finally { setSaving(false); }
   }
   const fieldError = (f: string) => (error?.fields[f] ? FIELD_TEXT[f] ?? 'Ungültig.' : null);
+  const indoor = standorte.find((s) => s.id === v.standort_id)?.type === INDOOR_TYPE;
   const num = (s: string) => (s.trim() === '' ? null : Number.isFinite(Number(s)) ? Number(s) : -1);
 
   return (
@@ -408,6 +428,9 @@ export function PlantForm({ id }: { id?: string }) {
         {picked && !query && <span className="small">Gewählt: <strong>{picked.label}</strong> <i className="muted">{picked.latin}</i></span>}
         {fieldError('species_id') && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldError('species_id')}</span>}
       </div>
+      <PhotoIdButton busy={aiAsking} onPick={identify} />
+      {!query.trim() && ai && <AiSuggestions ai={ai} error={aiError} canAsk={false} onAsk={askAi} onPick={pickAi} />}
+      {!query.trim() && !ai && aiError && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{aiError}</span>}
       <span className="sr-only" aria-live="polite">{query.trim() ? `${cands.length} Vorschläge` : ''}</span>
       {query.trim() && (
         <div className="stack" aria-label="Vorschläge">
@@ -445,6 +468,7 @@ export function PlantForm({ id }: { id?: string }) {
       <StandortPicker standorte={standorte} value={v.standort_id} onChange={(sid) => set({ standort_id: sid })}
         onCreated={(s) => { setStandorte((xs) => [...xs, s].sort((a, b) => a.name.localeCompare(b.name))); set({ standort_id: s.id }); }} />
       {fieldError('standort_id') && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldError('standort_id')}</span>}
+      {indoor && <IndoorFields v={v} set={set} num={num} />}
 
       <div className="grid2">
         <div className="field">
@@ -464,10 +488,10 @@ export function PlantForm({ id }: { id?: string }) {
         <label htmlFor="nick">Spitzname (optional)</label>
         <input id="nick" className="input" maxLength={60} placeholder="z. B. Apfel am Weg" value={v.nickname ?? ''} onChange={(e) => set({ nickname: e.target.value || null })} />
       </div>
-      <div className="setrow" style={{ borderBottom: 0 }}>
+      {!indoor && <div className="setrow" style={{ borderBottom: 0 }}>
         <span id="kuebel-label">Im Kübel</span>
         <button className="switch" role="switch" aria-checked={v.in_container} aria-labelledby="kuebel-label" onClick={() => set({ in_container: !v.in_container })}><span /></button>
-      </div>
+      </div>}
       <details>
         <summary style={{ minHeight: 44, display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 700 }}>Mehr Angaben (Unterlage, Stammumfang, Notizen)</summary>
         <div className="stack" style={{ gap: 12 }}>
@@ -486,7 +510,60 @@ export function PlantForm({ id }: { id?: string }) {
       <button className="btn primary" onClick={save} disabled={saving || !v.species_id || !v.standort_id}>
         {saving ? <Waiting text="Speichert …" /> : id ? 'Speichern' : 'Pflanze anlegen'}
       </button>
-      {!id && <span className="tiny" style={{ textAlign: 'center' }}>Den Pflegeplan erstellst du danach auf der Seite der Pflanze.</span>}
+      {!id && <span className="tiny" style={{ textAlign: 'center' }}>Den Pflegeplan erstellt die KI danach von selbst{indoor ? ' – mit Gieß-Rhythmus' : ''}.</span>}
+    </div>
+  );
+}
+
+function PhotoIdButton({ busy, onPick }: { busy: boolean; onPick: (files: FileList | null) => void }) {
+  const input = useRef<HTMLInputElement>(null);
+  return (
+    <>
+      <input ref={input} type="file" accept="image/*" hidden onChange={(e) => { onPick(e.target.files); e.target.value = ''; }} />
+      <button className="btn" disabled={busy} onClick={() => input.current?.click()}>
+        {busy ? <Waiting text="Foto wird geladen …" /> : <><Icon name="camera" size={20} />Per Foto bestimmen</>}
+      </button>
+    </>
+  );
+}
+
+function Segments<K extends string>({ label, options, value, onChange }: { label: string; options: Record<K, string>; value: K | null | undefined; onChange: (k: K | null) => void }) {
+  return (
+    <div className="stack" style={{ gap: 6 }}>
+      <span className="label">{label}</span>
+      <div className="row" role="group" aria-label={label}>
+        {(Object.entries(options) as [K, string][]).map(([k, text]) => (
+          <button key={k} className="seg" aria-pressed={value === k} onClick={() => onChange(value === k ? null : k)}>{text}</button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function IndoorFields({ v, set, num }: { v: PlantIn; set: (p: Partial<PlantIn>) => void; num: (s: string) => number | null }) {
+  return (
+    <div className="stack" style={{ gap: 12 }}>
+      <Segments label="Fenster in Richtung" options={WINDOWS} value={v.window_dir} onChange={(k) => set({ window_dir: k })} />
+      <Segments label="Abstand zum Fenster" options={DISTANCES} value={v.window_distance} onChange={(k) => set({ window_distance: k })} />
+      <div className="grid2">
+        <div className="field"><label htmlFor="pot">Topf Ø (cm)</label><input id="pot" className="input" inputMode="numeric" value={v.pot_cm ?? ''} onChange={(e) => set({ pot_cm: num(e.target.value) })} /></div>
+        <div className="field"><label htmlFor="mat">Topf-Material</label>
+          <select id="mat" className="input" value={v.pot_material ?? ''} onChange={(e) => set({ pot_material: (e.target.value || null) as PlantIn['pot_material'] })}>
+            <option value="">–</option>
+            {Object.entries(POT_MATERIALS).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+          </select>
+        </div>
+      </div>
+      <span className="tiny">Licht, Topf und Jahreszeit bestimmen den Gieß-Rhythmus. Frostwarnungen und Schnittregeln gelten drinnen nicht.</span>
+    </div>
+  );
+}
+
+function InOut({ indoor, onChange }: { indoor: boolean; onChange: (indoor: boolean) => void }) {
+  return (
+    <div className="row" role="group" aria-label="Drinnen oder draußen">
+      <button className="seg" aria-pressed={!indoor} onClick={() => onChange(false)}>Draußen</button>
+      <button className="seg" aria-pressed={indoor} onClick={() => onChange(true)}>Drinnen</button>
     </div>
   );
 }
@@ -523,12 +600,13 @@ function StandortPicker({ standorte, value, onChange, onCreated }: { standorte: 
   const [adding, setAdding] = useState(false);
   const [name, setName] = useState('');
   const [light, setLight] = useState<Light>('sonnig');
+  const [inside, setInside] = useState(false);
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   async function add() {
     if (busy) return;
     setErr(''); setBusy(true);
-    try { onCreated(await api.createStandort({ name, light, type: 'beet', notes: '' })); setAdding(false); setName(''); }
+    try { onCreated(await api.createStandort({ name, light, type: inside ? INDOOR_TYPE : 'beet', notes: '' })); setAdding(false); setName(''); }
     catch (e) { setErr(e instanceof ApiError && e.status === 409 ? 'Diesen Standort gibt es schon.' : e instanceof ApiError && e.status === 422 ? 'Bitte einen Namen (max. 60 Zeichen) eingeben.' : fail(e).message); }
     finally { setBusy(false); }
   }
@@ -536,12 +614,13 @@ function StandortPicker({ standorte, value, onChange, onCreated }: { standorte: 
     <div className="stack">
       <span className="label">Standort</span>
       <div className="row" role="group" aria-label="Standort">
-        {standorte.map((s) => <button key={s.id} className="seg" aria-pressed={value === s.id} onClick={() => onChange(s.id)}>{s.name}</button>)}
+        {standorte.map((s) => <button key={s.id} className="seg" aria-pressed={value === s.id} onClick={() => onChange(s.id)}>{s.name}{s.type === INDOOR_TYPE ? ' (drinnen)' : ''}</button>)}
         <button className="seg" aria-pressed={adding} onClick={() => setAdding(!adding)}>+ Neuer Standort</button>
       </div>
       {adding && (
         <div className="outline stack" style={{ gap: 10 }}>
-          <div className="field"><label htmlFor="sname">Name</label><input id="sname" className="input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Beet am Zaun" /></div>
+          <InOut indoor={inside} onChange={setInside} />
+          <div className="field"><label htmlFor="sname">Name</label><input id="sname" className="input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder={inside ? 'z. B. Wohnzimmer' : 'z. B. Beet am Zaun'} /></div>
           <div className="row" role="group" aria-label="Licht">
             {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={light === l} onClick={() => setLight(l)}>{l}</button>)}
           </div>
@@ -571,14 +650,14 @@ export function Standorte() {
     <div className="page">
       <Back href="#/mehr" label="Mehr" />
       <div className="between"><h1 className="title-s">Standorte</h1><button className="btn" onClick={() => setEdit('new')}>+ Neu</button></div>
-      <span className="small muted">Orte im Garten mit Licht – wichtig für Pflege und Aussaat.</span>
+      <span className="small muted">Orte im Garten und Zimmer im Haus, mit Licht – wichtig für Pflege, Gießen und Wetterwarnungen.</span>
       {msg && <p className="box" role="alert">{msg}</p>}
       {edit && <StandortEditor s={edit === 'new' ? null : edit} onDone={() => { setEdit(null); load(); }} />}
       {list?.length === 0 && !edit && <p className="box">Noch keine Standorte. Sie entstehen auch beim Anlegen einer Pflanze.</p>}
       {list?.map((s) => (
         <div key={s.id} className="card stack" style={{ gap: 6 }}>
           <div className="between"><strong style={{ fontSize: 17 }}>{s.name}</strong><LightChip light={s.light} /></div>
-          <span className="small muted">{STANDORT_TYPES[s.type]} · {s.plant_count} {s.plant_count === 1 ? 'Pflanze' : 'Pflanzen'}{s.notes ? ` · ${s.notes}` : ''}</span>
+          <span className="small muted">{s.type === INDOOR_TYPE ? 'Drinnen' : `Draußen · ${STANDORT_TYPES[s.type]}`} · {s.plant_count} {s.plant_count === 1 ? 'Pflanze' : 'Pflanzen'}{s.notes ? ` · ${s.notes}` : ''}</span>
           <div className="grid2"><button className="btn" onClick={() => setEdit(s)}>Bearbeiten</button><button className="btn" onClick={() => remove(s)}>Löschen</button></div>
         </div>
       ))}
@@ -594,7 +673,7 @@ function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void 
     if (busy) return;
     setErr(''); setBusy(true);
     try { if (s) await api.updateStandort(s.id, v); else await api.createStandort(v); onDone(); }
-    catch (e) { setErr(e instanceof ApiError && e.status === 409 ? 'Diesen Namen gibt es schon.' : e instanceof ApiError && e.status === 422 ? 'Bitte Eingaben prüfen (Name 1–60 Zeichen).' : fail(e).message); }
+    catch (e) { setErr(e instanceof ApiError && e.status === 409 ? (e.message.includes('indoor') ? 'Mit Pflanzen kann ein Standort nicht zwischen drinnen und draußen wechseln.' : 'Diesen Namen gibt es schon.') : e instanceof ApiError && e.status === 422 ? 'Bitte Eingaben prüfen (Name 1–60 Zeichen).' : fail(e).message); }
     finally { setBusy(false); }
   }
   return (
@@ -603,11 +682,16 @@ function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void 
       <div className="row" role="group" aria-label="Licht">
         {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={v.light === l} onClick={() => setV({ ...v, light: l })}>{l}</button>)}
       </div>
-      <div className="field"><label htmlFor="st">Art</label>
-        <select id="st" className="input" value={v.type} onChange={(e) => setV({ ...v, type: e.target.value as Standort['type'] })}>
-          {Object.entries(STANDORT_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
-        </select>
-      </div>
+      <InOut indoor={v.type === INDOOR_TYPE} onChange={(inside) => setV({ ...v, type: inside ? INDOOR_TYPE : 'beet' })} />
+      {v.type === INDOOR_TYPE
+        ? <span className="small muted">Ein Zimmer: Pflanzen hier bekommen Gieß-Erinnerungen, aber keine Frost- und Wetterwarnungen.</span>
+        : (
+          <div className="field"><label htmlFor="st">Art</label>
+            <select id="st" className="input" value={v.type} onChange={(e) => setV({ ...v, type: e.target.value as Standort['type'] })}>
+              {Object.entries(STANDORT_TYPES).filter(([k]) => k !== INDOOR_TYPE).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+            </select>
+          </div>
+        )}
       <div className="field"><label htmlFor="sno">Notizen</label><input id="sno" className="input" maxLength={500} value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} /></div>
       {err && <span className="small" style={{ color: 'var(--urgent)' }}>{err}</span>}
       <div className="grid2"><button className="btn" onClick={onDone}>Abbrechen</button><button className="btn" style={{ background: 'var(--green)', color: 'var(--green-ink)', border: 0, fontWeight: 700 }} onClick={save} disabled={busy}>{busy ? 'Speichert …' : 'Speichern'}</button></div>

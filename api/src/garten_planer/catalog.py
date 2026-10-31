@@ -24,7 +24,11 @@ async def _setup(c: AsyncConnection) -> None:
     rows = [s.model_dump(exclude={"cultivars"}) | {"source": "seed"} for s in seed]
     stmt = insert(species).values(rows)
     await c.execute(
-        stmt.on_conflict_do_update(index_elements=["id"], set_={k: stmt.excluded[k] for k in rows[0] if k != "id"})
+        stmt.on_conflict_do_update(
+            index_elements=["id"],
+            set_={k: stmt.excluded[k] for k in rows[0] if k != "id"},
+            where=species.c.source == "seed",  # a species the user added keeps its data
+        )
     )
     crows = [
         {

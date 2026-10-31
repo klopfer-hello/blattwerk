@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from garten_planer.chat import MAX_QUESTION
 from garten_planer.db import Conn, get_engine
 from garten_planer.errors import ApiError, not_found
-from garten_planer.garten_tools import active_plant, check_task
+from garten_planer.garten_tools import active_plant, check_task, indoor_plant
 from garten_planer.jobs import CHAT_QUEUED_FOR, CHAT_STALE, fail_stale
 from garten_planer.models import Strict, _strip
 from garten_planer.routes.todos import TZ, create_task
@@ -222,7 +222,7 @@ async def confirm(aid: str, c: Conn) -> dict[str, Any]:
     if plant_id and not await active_plant(c, plant_id):
         raise ApiError(409, "plant archived or deleted")
     if a.kind == "aufgabe":
-        checked = check_task(a.payload, today)  # the same rules as when it was proposed, checked again now
+        checked = check_task(a.payload, today, await indoor_plant(c, plant_id))  # the same rules, checked again
         if isinstance(checked, str):
             raise ApiError(409, checked)
         task = await create_task(checked, c, today)

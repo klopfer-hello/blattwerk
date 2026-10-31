@@ -49,7 +49,8 @@ def seed() -> dict[str, str]:
     api("PUT", "/settings", s)
     sites = {}
     for name, light, typ in (("Beet am Zaun", "sonnig", "beet"), ("Hecke Nord", "halbschattig", "hecke"),
-                             ("Terrasse", "sonnig", "kuebelplatz"), ("Gewächshaus", "sonnig", "gewaechshaus")):  # fmt: skip
+                             ("Terrasse", "sonnig", "kuebelplatz"), ("Gewächshaus", "sonnig", "gewaechshaus"),
+                             ("Wohnzimmer", "halbschattig", "zimmer")):  # fmt: skip
         sites[typ] = api("POST", "/standorte", {"name": name, "light": light, "type": typ, "notes": ""})["id"]  # type: ignore[index]
     plants = {}
     for key, body in {
@@ -57,6 +58,8 @@ def seed() -> dict[str, str]:
         "hecke": {"species_id": "carpinus-betulus", "standort_id": sites["hecke"], "form": "Hecke"},
         "kuebel": {"species_id": "malus-domestica", "standort_id": sites["kuebelplatz"], "in_container": True,
                    "nickname": "Säulenapfel Terrasse"},
+        "zimmer": {"species_id": "monstera-deliciosa", "standort_id": sites["zimmer"], "window_dir": "O",
+                   "window_distance": "bis_1m", "pot_cm": 24, "pot_material": "kunststoff"},
     }.items():  # fmt: skip
         plants[key] = api("POST", "/plants", body)["id"]  # type: ignore[index]
     m = date.today().month
@@ -69,6 +72,10 @@ def seed() -> dict[str, str]:
          "month_from": 6, "month_to": 6, "plant_id": plants["hecke"]},
         {"title": "Rosen schneiden", "category": "schnitt", "cut_type": "pflege", "recurrence": "yearly",
          "month_from": 3, "month_to": 4, "pheno_phase": "erstfruehling"},
+        {"title": "Gießen", "category": "giessen", "recurrence": "interval", "interval_days": 7,
+         "winter_interval_days": 10, "plant_id": plants["zimmer"], "instructions": "Obere 2 cm trocken? Dann gießen."},
+        {"title": "Blätter abstauben", "category": "entstauben", "recurrence": "interval", "interval_days": 45,
+         "plant_id": plants["zimmer"]},
     ]  # fmt: skip
     for t in tasks:
         api("POST", "/tasks", t)
@@ -77,7 +84,7 @@ def seed() -> dict[str, str]:
     with urllib.request.urlopen(req, timeout=20) as r:  # noqa: S310 - the local smoke stack
         pid = json.loads(r.read())["id"]
     chat = api("POST", "/chats", {"text": "Flecken auf dem Blatt?", "photo_ids": [pid], "plant_id": plants["apfel"]})
-    return {"plant": plants["apfel"], "chat": chat["chat_id"]}  # type: ignore[index]
+    return {"plant": plants["apfel"], "chat": chat["chat_id"], "zimmer": plants["zimmer"]}  # type: ignore[index]
 
 
 def screens(ids: dict[str, str]) -> dict[str, tuple[str, str]]:
@@ -91,7 +98,8 @@ def screens(ids: dict[str, str]) -> dict[str, tuple[str, str]]:
         "warnung": ("#/warnung", "Wetterwarnungen"),
         "pflanze-krank": (f"#/fragen-pflanze/{ids['plant']}", "Pflanze krank?"),
         "chat-foto": (f"#/fragen/{ids['chat']}", "Flecken auf dem Blatt?"),
-        "zimmer-vorschau": ("#/vorschau-zimmer", "Zimmerpflanzen"),
+        "zimmerpflanze": (f"#/pflanze/{ids['zimmer']}", "Fenster"),
+        "zimmerpflanze-bearbeiten": (f"#/pflanze/{ids['zimmer']}/bearbeiten", "Abstand zum Fenster"),
     }  # fmt: skip
 
 
@@ -146,6 +154,17 @@ def large_view(page: Page, size: str, problems: list[str]) -> None:
         problems.append(f"{size}/chat-foto: large view does not open or close")
 
 
+def soil(page: Page, problems: list[str]) -> None:
+    """Indoor watering: tick it off, answer how the soil was (the rhythm adapts)."""
+    try:
+        page.get_by_role("checkbox", name="Gießen: erledigt").click()
+        page.get_by_role("button", name="passt").click()
+        page.wait_for_function("() => document.querySelector('main').innerText.includes('Erde vorher: passt')", timeout=8000)
+        page.screenshot(path=str(OUT / "iphone-heute-giessen.png"), full_page=True)
+    except Exception:
+        problems.append("iphone/heute: watering with soil feedback does not work")
+
+
 def main() -> None:
     OUT.mkdir(exist_ok=True)
     wait_for_api()
@@ -180,6 +199,8 @@ def main() -> None:
                     photo(page, size, problems)
                 if name == "chat-foto":
                     large_view(page, size, problems)
+                if name == "heute" and size == "iphone":
+                    soil(page, problems)
             ctx.close()
         browser.close()
     for n in sorted(set(notes)):

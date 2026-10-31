@@ -98,8 +98,11 @@ async def run_json(
     model: str = "sonnet",
     budget_usd: float = 0.50,
     timeout_s: int = 300,
+    images: list[bytes] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """(structured answer, run info: model, cost, duration). Raises ClaudeError."""
+    """(structured answer, run info: model, cost, duration). Raises ClaudeError. With `images`
+    (JPEG, plant ID by photo) input and output are stream-json; the result event is the same
+    envelope as --output-format json."""
     if not cfg.token:
         raise NotReady("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")
     binary = binary_path(cfg)
@@ -114,6 +117,11 @@ async def run_json(
         "--max-budget-usd", f"{budget_usd:.2f}", "--append-system-prompt", system,
         "--json-schema", json.dumps(schema),
     ]  # fmt: skip
+    stdin = prompt.encode()
+    if images:
+        args[args.index("json")] = "stream-json"
+        args += ["--verbose", "--input-format", "stream-json"]
+        stdin = _image_message(prompt, images)
     proc = await asyncio.create_subprocess_exec(
         *args,
         stdin=asyncio.subprocess.PIPE,
@@ -123,12 +131,26 @@ async def run_json(
         cwd=str(cfg.root / "home"),
     )
     try:
-        out, err = await asyncio.wait_for(proc.communicate(prompt.encode()), timeout=timeout_s)
+        out, err = await asyncio.wait_for(proc.communicate(stdin), timeout=timeout_s)
     except TimeoutError:
         proc.kill()
         await proc.wait()
         raise ClaudeError(f"Die KI hat nach {timeout_s} s nicht geantwortet.") from None
-    return parse_result(out.decode(errors="replace"), proc.returncode or 0, err.decode(errors="replace"))
+    text = out.decode(errors="replace")
+    if images:  # stream-json: the last "result" line is the envelope
+        text = next((ln for ln in reversed(text.splitlines()) if '"type":"result"' in ln.replace(" ", "")), text)
+    return parse_result(text, proc.returncode or 0, err.decode(errors="replace"))
+
+
+def _image_message(prompt: str, images: list[bytes]) -> bytes:
+    """One stream-json user message: the images as base64 blocks, then the text."""
+    content: list[dict[str, Any]] = [
+        {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                     "data": base64.b64encode(img).decode()}}
+        for img in images
+    ]  # fmt: skip
+    content.append({"type": "text", "text": prompt})
+    return json.dumps({"type": "user", "message": {"role": "user", "content": content}}).encode() + b"\n"
 
 
 async def run_stream(
@@ -169,13 +191,7 @@ async def run_stream(
         stdin = prompt.encode()
         if images:
             args += ["--input-format", "stream-json"]
-            content: list[dict[str, Any]] = [
-                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
-                                             "data": base64.b64encode(img).decode()}}
-                for img in images
-            ]  # fmt: skip
-            content.append({"type": "text", "text": prompt})
-            stdin = json.dumps({"type": "user", "message": {"role": "user", "content": content}}).encode() + b"\n"
+            stdin = _image_message(prompt, images)
         proc = await asyncio.create_subprocess_exec(
             *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
             env=_env(cfg), cwd=str(cfg.root / "home"), limit=4 * 1024 * 1024,

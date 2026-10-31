@@ -140,6 +140,7 @@ export function TodoRow({ todo, done, note, onToggle }: { todo: Todo; done: bool
 
 const TASK_CAT: Record<ApiCategory, string> = {
   schnitt: 'schnitt', duengen: 'duengen', ernte: 'ernte', pflanzenschutz: 'schutz', winterschutz: 'winter', aussaat: 'aussaat', sonstiges: '',
+  giessen: 'giessen', bespruehen: 'bespruehen', entstauben: 'entstauben',
 };
 export const taskColors = (c: ApiCategory) =>
   TASK_CAT[c] ? { background: `var(--c-${TASK_CAT[c]})`, color: `var(--c-${TASK_CAT[c]}-ink)` } : { background: 'var(--surface)', color: 'var(--ink-2)' };
@@ -157,9 +158,14 @@ export const localDay = (ts: string) => new Date(ts).toLocaleDateString('de-DE')
 export const localIso = (days = 0) => { const d = new Date(); d.setDate(d.getDate() + days); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /** "jedes Jahr im November", "jedes Jahr November–Februar", "alle 7 Tage", "einmalig am 5.12.2026" */
-export function timingText(t: Pick<TaskIn, 'recurrence' | 'due_date' | 'month_from' | 'month_to' | 'interval_days' | 'pheno_phase' | 'pheno_offset'>): string {
+export function timingText(t: Pick<TaskIn, 'recurrence' | 'due_date' | 'month_from' | 'month_to' | 'interval_days' | 'winter_interval_days' | 'pheno_phase' | 'pheno_offset'>): string {
   if (t.recurrence === 'once') return t.due_date ? `einmalig am ${deDate(t.due_date)}` : 'einmalig';
-  if (t.recurrence === 'interval') return t.interval_days === 1 ? 'täglich' : `alle ${t.interval_days} Tage`;
+  if (t.recurrence === 'interval') {
+    const every = (n: number | null | undefined) => (n === 1 ? 'täglich' : `alle ${n} Tage`);
+    const winter = t.winter_interval_days && t.winter_interval_days !== t.interval_days ? ` · Nov–Feb ${every(t.winter_interval_days)}` : '';
+    const season = t.month_from && t.month_to ? `, ${monthName(t.month_from)}–${monthName(t.month_to)}` : '';
+    return `${every(t.interval_days)}${season}${winter}`;
+  }
   const phase = t.pheno_phase ? PHASES.find(([k]) => k === t.pheno_phase) : undefined;
   if (phase) {
     const off = t.pheno_offset ?? 0;

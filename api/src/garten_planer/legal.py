@@ -59,6 +59,7 @@ class PlantFacts:
     growth: str
     fruit_tree: bool
     girth_cm: int | None
+    indoor: bool = False  # a Zimmerpflanze (M11): § 39 and the tree bylaws are about the garden
 
 
 @dataclass(frozen=True)
@@ -90,8 +91,8 @@ def is_fruit_tree(latin: str, growth: str) -> bool:
 
 
 def _covered(plant: PlantFacts | None) -> bool:
-    """§39 covers woody plants that are not garden trees; unknown plant: assume covered."""
-    return plant is None or (plant.woody and plant.growth != "baum")
+    """§39 covers woody plants that are not garden trees (outdoors); unknown plant: assume covered."""
+    return plant is None or (not plant.indoor and plant.woody and plant.growth != "baum")
 
 
 def _strong(category: str, cut_type: str | None, plant: PlantFacts | None) -> bool:
@@ -148,7 +149,7 @@ def notes(
     category: str, cut_type: str | None, plant: PlantFacts | None, s: LegalSettings, months: frozenset[int]
 ) -> list[Note]:
     """What to tell the gardener about a task due in `months`."""
-    if category != "schnitt":
+    if category != "schnitt" or (plant is not None and plant.indoor):
         return []
     out: list[Note] = []
     if _strong(category, cut_type, plant):

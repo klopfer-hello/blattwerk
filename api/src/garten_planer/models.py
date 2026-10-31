@@ -93,7 +93,10 @@ Text60 = Annotated[Annotated[str, Field(max_length=60)] | None, BeforeValidator(
 Text40 = Annotated[Annotated[str, Field(max_length=40)] | None, BeforeValidator(_blank_to_none)]
 Ref = Annotated[str, Field(min_length=1, max_length=120)]
 Light = Literal["sonnig", "halbschattig", "schattig"]
-StandortType = Literal["beet", "gemuesebeet", "rasen", "hecke", "kuebelplatz", "gewaechshaus", "sonstiges"]
+StandortType = Literal["beet", "gemuesebeet", "rasen", "hecke", "kuebelplatz", "gewaechshaus", "sonstiges", "zimmer"]
+Window = Literal["N", "O", "S", "W", "keins"]
+WindowDistance = Literal["fensterbank", "bis_1m", "1_2m", "raum"]
+PotMaterial = Literal["kunststoff", "ton", "keramik", "glas"]
 Form = Literal[
     "Säule", "Halbstamm", "Hochstamm", "Busch", "Spindel", "Spalier", "Strauch", "Hecke", "Solitär", "Kübel",
     "Kletterer", "Horst", "Knolle",
@@ -126,7 +129,14 @@ class PlantIn(Strict):
     planted_year: Annotated[int | None, Field(ge=1900), AfterValidator(_not_future)] = None
     girth_cm: Annotated[int | None, Field(ge=1, le=1000)] = None
     in_container: bool = False
+    window_dir: Window | None = None  # indoor only (M11; the route checks the Standort)
+    window_distance: WindowDistance | None = None
+    pot_cm: Annotated[int | None, Field(ge=3, le=200)] = None
+    pot_material: PotMaterial | None = None
     notes: Annotated[str, Field(max_length=1000)] = ""
+
+    def indoor_fields(self) -> bool:
+        return any(v is not None for v in (self.window_dir, self.window_distance, self.pot_cm, self.pot_material))
 
 
 class SpeciesRef(BaseModel):
@@ -146,6 +156,8 @@ class StandortRef(BaseModel):
     id: str
     name: str
     light: Light | None  # None: the Standort was deleted meanwhile (see plants._expand)
+    type: StandortType | None = None
+    indoor: bool = False  # a Zimmer (M11)
 
 
 class Plant(BaseModel):
@@ -159,6 +171,10 @@ class Plant(BaseModel):
     planted_year: int | None
     girth_cm: int | None
     in_container: bool
+    window_dir: Window | None = None
+    window_distance: WindowDistance | None = None
+    pot_cm: int | None = None
+    pot_material: PotMaterial | None = None
     notes: str
     archived: bool
 
@@ -201,7 +217,10 @@ class GardenSettings(Strict):
     notifications: Notifications = Notifications()
 
 
-TaskCategory = Literal["schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges"]
+TaskCategory = Literal[
+    "schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges", "giessen", "bespruehen",
+    "entstauben",
+]  # fmt: skip
 Month = Annotated[int, Field(ge=1, le=12)]
 Day = Annotated[date, Field(ge=date(2000, 1, 1), le=date(2100, 12, 31))]  # keeps date maths bounded
 
@@ -221,7 +240,8 @@ PhaseKey = Literal[
 
 
 class TaskIn(Strict):
-    """F-TD/F-CP-7: what should be done, and when. No watering category (F-CP-6)."""
+    """F-TD/F-CP-7: what should be done, and when. Watering only for indoor plants (F-CP-6, M11;
+    the route checks the plant)."""
 
     plant_id: Ref | None = None
     title: Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=120), AfterValidator(_has_letters)]
@@ -233,6 +253,7 @@ class TaskIn(Strict):
     month_from: Month | None = None
     month_to: Month | None = None
     interval_days: Annotated[int | None, Field(ge=1, le=3650)] = None
+    winter_interval_days: Annotated[int | None, Field(ge=1, le=3650)] = None  # Nov-Feb (interval only)
     start_date: Day | None = None
     urgent: bool = False
     pheno_phase: PhaseKey | None = None  # F-WX-3: follow the season (yearly only; month window = fallback)
@@ -245,6 +266,10 @@ class TaskIn(Strict):
         missing = [f for f in needs[self.recurrence] if getattr(self, f) is None]
         if missing:
             raise ValueError(f"{self.recurrence} needs {', '.join(missing)}")
+        if self.winter_interval_days is not None and self.recurrence != "interval":
+            raise ValueError("a winter interval needs an interval task")
+        if self.recurrence == "interval" and (self.month_from is None) != (self.month_to is None):
+            raise ValueError("an interval season needs month_from and month_to")
         if self.pheno_phase is not None and self.recurrence != "yearly":
             raise ValueError("a phenological trigger needs a yearly task")
         if (self.category == "schnitt") != (self.cut_type is not None):
@@ -264,6 +289,10 @@ class Task(TaskIn):
 
 class NoteIn(Strict):
     note: Annotated[str | None, Field(max_length=1000)] = None
+
+
+class SoilIn(Strict):
+    soil: Literal["feucht", "passt", "trocken"]
 
 
 class PostponeIn(Strict):

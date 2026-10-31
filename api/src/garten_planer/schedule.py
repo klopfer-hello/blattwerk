@@ -3,9 +3,9 @@
 A task's timing is `once` (a date), `yearly` (a month window, may wrap the year
 end: Nov-Feb; or, with a phenological trigger, a window from the phase start of that
 year, the month window being the fallback, M7) or `interval` (every n days, counted from the day the previous
-occurrence was done or skipped). `occurrences()` lists what should exist as a
-to-do today (current/upcoming within HORIZON_DAYS; past yearly windows are not
-created after the fact, an overdue `once` is). `period` is the stable key of an
+occurrence was done or skipped; optionally another n in Nov-Feb and only in a month window, M11).
+`occurrences()` lists what should exist as a to-do today (current/upcoming within HORIZON_DAYS; past yearly
+windows are not created after the fact, an overdue `once` is). `period` is the stable key of an
 occurrence (UNIQUE per task in the DB), so creating them is idempotent."""
 
 import calendar
@@ -25,6 +25,7 @@ class TaskTiming:
     month_from: int | None = None
     month_to: int | None = None
     interval_days: int | None = None
+    winter_interval_days: int | None = None  # Nov-Feb instead of interval_days (indoor watering)
     start_date: date | None = None
     pheno_phase: str | None = None  # e.g. "erstfruehling": from the Forsythia blossom
     pheno_offset: int = 0  # days after (negative: before) the phase start
@@ -64,8 +65,33 @@ def _slack(days: int) -> int:
     return min(6, days // 7)
 
 
-def interval_after(closed_on: date, days: int) -> Occurrence:
-    start = closed_on + timedelta(days=days)
+WINTER = (11, 12, 1, 2)
+
+
+def in_months(day: date, month_from: int, month_to: int) -> bool:
+    if month_from <= month_to:
+        return month_from <= day.month <= month_to
+    return day.month >= month_from or day.month <= month_to
+
+
+def _in_season(t: TaskTiming, day: date) -> date:
+    """An interval with a month window (fertilise Apr-Sep) rests outside it: the first day of the window."""
+    if t.month_from is None or t.month_to is None or in_months(day, t.month_from, t.month_to):
+        return day
+    year = day.year if day.month < t.month_from else day.year + 1
+    return date(year, t.month_from, 1)
+
+
+def rhythm_field(closed_on: date, t: TaskTiming) -> str:
+    """Which interval the next occurrence uses: the winter one when it would fall in Nov-Feb."""
+    assert t.interval_days is not None
+    winter = t.winter_interval_days and (closed_on + timedelta(days=t.interval_days)).month in WINTER
+    return "winter_interval_days" if winter else "interval_days"
+
+
+def interval_after(closed_on: date, t: TaskTiming) -> Occurrence:
+    days: int = getattr(t, rhythm_field(closed_on, t))
+    start = _in_season(t, closed_on + timedelta(days=days))
     return Occurrence(start.isoformat(), start, start + timedelta(days=_slack(days)))
 
 
@@ -101,7 +127,7 @@ def occurrences(
                 out.append(o)
         return out
     assert t.interval_days is not None
-    start = t.start_date or today
+    start = _in_season(t, t.start_date or today)
     o = _apply(Occurrence(start.isoformat(), start, start + timedelta(days=_slack(t.interval_days))), adjust)
     return [o] if o.due_from <= horizon else []
 
@@ -118,12 +144,21 @@ def months_in_year(t: TaskTiming, year: int) -> list[int]:
         return sorted({*range(t.month_from, 13), *range(1, t.month_to + 1)})
     assert t.interval_days is not None
     first, jan1 = t.start_date or date(year, 1, 1), date(year, 1, 1)
+    if t.winter_interval_days or t.month_from is not None:  # seasonal: step like the to-dos do
+        found: set[int] = set()
+        day = _in_season(t, max(first, jan1 - timedelta(days=400)))
+        while day.year <= year:
+            if day.year == year:
+                found.add(day.month)
+            day = interval_after(day, t).due_from
+        return sorted(found)
     if first < jan1:  # jump to the first occurrence in `year` arithmetically, not day by day
         steps = -(-(jan1 - first).days // t.interval_days)
         first += timedelta(days=steps * t.interval_days)
     months: set[int] = set()
     day = first
     while day.year == year:
-        months.add(day.month)
+        if t.month_from is None or t.month_to is None or in_months(day, t.month_from, t.month_to):
+            months.add(day.month)
         day += timedelta(days=t.interval_days)
     return sorted(months)

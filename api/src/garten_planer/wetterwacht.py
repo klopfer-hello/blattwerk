@@ -93,13 +93,14 @@ async def load_forecast(db: Influx, now: datetime) -> list[Hour]:
 # ----- Postgres --------------------------------------------------------------------------------
 
 
-async def _plants(c: AsyncConnection) -> list[PlantInfo]:
+async def garden_plants(c: AsyncConnection) -> list[PlantInfo]:
+    """Plants outside (an indoor plant never gets frost or heat alerts)."""
     rows = await c.execute(
         select(plants.c.id, plants.c.nickname, plants.c.in_container, species.c.german, species.c.latin,
                species.c.growth, species.c.hardiness_c, standorte.c.type)
         .join(species, species.c.id == plants.c.species_id)
         .join(standorte, standorte.c.id == plants.c.standort_id)
-        .where(plants.c.archived_at.is_(None))
+        .where(plants.c.archived_at.is_(None), standorte.c.type != "zimmer")
         .order_by(species.c.german)
     )  # fmt: skip
     return [
@@ -231,7 +232,7 @@ async def run_once(engine: AsyncEngine, forecast: list[Hour], now: datetime) -> 
     days, nights = alerts.daily(forecast, now), alerts.daily(forecast, now, night=True)
     async with engine.begin() as c:
         push_on = (await _settings(c)).notifications.weather_push
-        garden = await _plants(c)
+        garden = await garden_plants(c)
         need: list[str] = []
         seen: set[str] = set()
         for e in events:

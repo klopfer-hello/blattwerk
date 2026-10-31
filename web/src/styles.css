@@ -10,7 +10,8 @@
   --c-schnitt: #E3EEE5; --c-schnitt-ink: #1F5130; --c-duengen: #E9F0D8; --c-duengen-ink: #3F5212;
   --c-ernte: #FDEBDD; --c-ernte-ink: #8A2E07; --c-schutz: #EEE8F7; --c-schutz-ink: #4A2D7A;
   --c-winter: #E3EAFB; --c-winter-ink: #1E40AF; --c-aussaat: #F3EFE6; --c-aussaat-ink: #5A4520;
-  --c-giessen: #DDF1F4; --c-giessen-ink: #0E5561;
+  --c-giessen: #DDF1F4; --c-giessen-ink: #0E5561; --c-bespruehen: #E4F3EC; --c-bespruehen-ink: #19583F;
+  --c-entstauben: #F1EEEA; --c-entstauben-ink: #4E4438;
   --radius: 14px;
   color-scheme: light;
 }
@@ -25,7 +26,8 @@
     --c-schnitt: #1E3325; --c-schnitt-ink: #9FD9B1; --c-duengen: #2A3317; --c-duengen-ink: #C9DC92;
     --c-ernte: #3A2117; --c-ernte-ink: #FFB28A; --c-schutz: #2B2340; --c-schutz-ink: #CDB8F2;
     --c-winter: #1D2747; --c-winter-ink: #9DB4FF; --c-aussaat: #2F2A1E; --c-aussaat-ink: #E0CFA6;
-    --c-giessen: #15343A; --c-giessen-ink: #8FDCE8;
+    --c-giessen: #15343A; --c-giessen-ink: #8FDCE8; --c-bespruehen: #17332A; --c-bespruehen-ink: #9EDDBF;
+    --c-entstauben: #2E2A25; --c-entstauben-ink: #DCCFBE;
     color-scheme: dark;
   }
 }
