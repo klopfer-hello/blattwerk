@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ApiError, BUNDESLAENDER, api, type Fertiliser, type GardenSettings } from '../api';
-import { Back } from '../components/ui';
+import { Back, Waiting } from '../components/ui';
 import { disablePush, enablePush, pushKey, pushState, testPush, type PushState } from '../push';
 
 export const FERTILISER: Record<Fertiliser, string> = { gemischt: 'Gemischt', organisch: 'Organisch', mineralisch: 'Mineralisch' };
@@ -28,7 +28,7 @@ export function Settings() {
       <div className="page">
         <Back href="#/mehr" label="Mehr" />
         <h1 className="title-s">Einstellungen</h1>
-        <p className="box">{error ? error.message : 'Lädt …'}</p>
+        <p className="box">{error ? error.message : <Waiting />}</p>
       </div>
     );
   }
@@ -145,7 +145,7 @@ export function Settings() {
 
       {error && <ErrorBox error={error} />}
       <button className={saved ? 'btn primary done' : 'btn primary'} onClick={save} disabled={saving}>
-        {saving ? 'Speichert …' : saved ? '✓ Gespeichert' : 'Speichern'}
+        {saving ? <Waiting text="Speichert …" /> : saved ? '✓ Gespeichert' : 'Speichern'}
       </button>
     </div>
   );
@@ -193,7 +193,7 @@ function DevicePush() {
   return (
     <section className="outline stack" style={{ gap: 10 }}>
       <h2 style={{ fontSize: 17 }}>Dieses Gerät</h2>
-      <span className="small">{state ? PUSH_TEXT[state] : 'Prüfe …'}</span>
+      <span className="small">{state ? PUSH_TEXT[state] : <Waiting text="Prüfe …" />}</span>
       {(state === 'off' || state === 'stale') && <button className="btn primary" disabled={busy} onClick={() => run(() => enablePush(key))}>{state === 'stale' ? 'Push neu einschalten' : 'Push auf diesem Gerät aktivieren'}</button>}
       {state === 'stale' && <button className="btn" disabled={busy} onClick={() => run(disablePush)}>Ausschalten</button>}
       {state === 'on' && (

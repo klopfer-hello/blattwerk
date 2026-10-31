@@ -4,7 +4,7 @@
 // their urgent to-dos are in the list like any other.
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, CATEGORIES, api, type Category, type Heute, type Todo, type WeatherAlert } from '../api';
-import { Back, Icon, TaskChip, deDate, localDay, monthName } from '../components/ui';
+import { Back, Icon, TaskChip, deDate, localDay, monthName, Waiting } from '../components/ui';
 import { delayText } from './More';
 
 const ORDER = Object.keys(CATEGORIES) as Category[];
@@ -52,7 +52,7 @@ export function Today() {
 
       <AlertCards />
       {error && <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error}</p>}
-      {!data && !error && <p className="muted">Lädt …</p>}
+      {!data && !error && <p className="muted"><Waiting /></p>}
 
       {data && total > 0 && (
         <div className="stack">
@@ -170,7 +170,7 @@ export function Alert() {
     <div className="page">
       <Back href="#/heute" label="Heute" />
       <h1 className="title-s">Wetterwarnungen</h1>
-      {!w && <p className="muted">Lädt …</p>}
+      {!w && <p className="muted"><Waiting /></p>}
       {w && w.alerts.length === 0 && <p className="box">Gerade keine Warnung. Frost, Spätfrost, Hitze und Sturm werden 24–48 Stunden vorher gemeldet.</p>}
       <p className="small muted">Frost ab −2 °C meldet die App von April bis Oktober und den ersten Frost jedes Herbstes (das Signal für die Kübel); danach ist Frost bis März normal und wird erst ab −10 °C gemeldet. Ab der Apfelblüte der Region bis Ende Mai gilt Spätfrost schon ab 0 °C (am Boden −1 °C). Eine Frostnacht zählt zum Tag ihres Morgens. Welche Pflanzen betroffen sind, richtet sich nach ihrer Winterhärte; Töpfe frieren etwa 10 °C früher durch.</p>
       {w?.alerts.map((a) => (

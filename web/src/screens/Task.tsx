@@ -2,7 +2,7 @@
 // form (what and when: once / every year in a month window / every n days).
 import { useEffect, useState } from 'react';
 import { ApiError, CATEGORIES, api, type Category, type LegalNote, type Plant, type PhaseKey, type Recurrence, type Task, type TaskIn, PHASES, type Todo } from '../api';
-import { Back, Legal, LegalNotes, TaskChip, deDate, localIso, monthName, timingText } from '../components/ui';
+import { Back, Legal, LegalNotes, TaskChip, deDate, localIso, monthName, timingText, Waiting } from '../components/ui';
 import { UNDO_409 } from './Today';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : 'Unbekannter Fehler');
@@ -14,7 +14,7 @@ export function TodoDetail({ id }: { id: string }) {
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
   useEffect(() => { api.todo(id).then((x) => { setT(x); setNote(x.note); }, (e) => setError(msg(e))); }, [id]);
-  if (!t) return <div className="page"><Back href="#/heute" label="Heute" /><p className="box">{error || 'Lädt …'}</p></div>;
+  if (!t) return <div className="page"><Back href="#/heute" label="Heute" /><p className="box">{error || <Waiting />}</p></div>;
 
   async function run(f: () => Promise<Todo>, on409 = 'Nur offene Aufgaben können verschoben werden.') {
     if (busy) return;
@@ -215,7 +215,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
         <textarea id="instr" className="input" rows={5} maxLength={4000} value={v.instructions} onChange={(e) => set({ instructions: e.target.value })} placeholder="Schritte, Material, worauf achten …" />
       </div>
       {error && (Object.keys(error.fields).length === 0 || Object.keys(error.fields).some((f) => !(f in FIELD_TEXT))) && <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error.message}</p>}
-      <button className="btn primary" onClick={save} disabled={saving || !v.title.trim()}>{saving ? 'Speichert …' : 'Speichern'}</button>
+      <button className="btn primary" onClick={save} disabled={saving || !v.title.trim()}>{saving ? <Waiting text="Speichert …" /> : 'Speichern'}</button>
       {id && <button className="btn" onClick={toggleEnabled}>{enabled ? 'Aufgabe pausieren (aus der Liste nehmen)' : 'Aufgabe wieder aktivieren'}</button>}
     </div>
   );

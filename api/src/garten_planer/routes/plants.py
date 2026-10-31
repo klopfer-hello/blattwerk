@@ -7,7 +7,7 @@ import uuid
 from datetime import UTC, datetime
 from typing import Annotated, Any
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy import Row, Select, exists, insert, select, update
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -15,6 +15,7 @@ from garten_planer.catalog import ready
 from garten_planer.db import Conn
 from garten_planer.errors import invalid, not_found
 from garten_planer.models import Plant, PlantIn
+from garten_planer.routes.plans import queue_plan
 from garten_planer.schema import cultivars, plants, species, standorte
 
 router = APIRouter(dependencies=[Depends(ready)])
@@ -92,22 +93,26 @@ async def read_plant(pid: str, c: Conn) -> Plant:
 
 
 @router.post("/plants", status_code=201)
-async def create_plant(body: PlantIn, c: Conn) -> Plant:
+async def create_plant(body: PlantIn, c: Conn, request: Request) -> Plant:
     await _check_refs(c, body)
     now = datetime.now(UTC)
     pid = uuid.uuid4().hex
     await c.execute(insert(plants).values(body.model_dump() | {"id": pid, "created_at": now, "updated_at": now}))
+    await queue_plan(c, pid, request.app.state.config.plan_daily_limit)  # the care plan comes by itself
     return await _one(c, pid)
 
 
 @router.put("/plants/{pid}")
-async def update_plant(pid: str, body: PlantIn, c: Conn) -> Plant:
-    if (await c.execute(select(plants.c.id).where(plants.c.id == pid))).first() is None:
+async def update_plant(pid: str, body: PlantIn, c: Conn, request: Request) -> Plant:
+    old = (await c.execute(select(plants.c.species_id, plants.c.cultivar_id).where(plants.c.id == pid))).first()
+    if old is None:
         raise not_found("plant")
     await _check_refs(c, body)
     await c.execute(
         update(plants).where(plants.c.id == pid).values(body.model_dump() | {"updated_at": datetime.now(UTC)})
     )
+    if (old.species_id, old.cultivar_id) != (body.species_id, body.cultivar_id):  # another plant now: new plan
+        await queue_plan(c, pid, request.app.state.config.plan_daily_limit)
     return await _one(c, pid)
 
 

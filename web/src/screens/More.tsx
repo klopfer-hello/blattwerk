@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { ApiError, api, type GardenSettings, type Reading, type Season, type Weather as WeatherData } from '../api';
 import { FERTILISER } from './Settings';
-import { Back, Icon, localIso } from '../components/ui';
+import { Back, Icon, localIso, Waiting } from '../components/ui';
 
 const num = (v: number | null | undefined, unit: string, digits = 1) =>
   v === null || v === undefined ? '–' : `${v.toLocaleString('de-DE', { maximumFractionDigits: digits })} ${unit}`;
@@ -33,7 +33,7 @@ function WeatherNow() {
   }, []);
   if (!w && failed) return <p className="box">Wetterdaten sind gerade nicht erreichbar. Aufgaben richten sich solange nach dem Kalender.</p>;
   if (w && !w.available) return <p className="box">Wetterdaten sind gerade nicht verfügbar. Aufgaben richten sich solange nach dem Kalender.</p>;
-  if (!w?.current) return <p className="box">Lädt …</p>;
+  if (!w?.current) return <p className="box"><Waiting /></p>;
   const c = w.current;
   const tiles: [string, Reading | undefined, string, number][] = [
     ['Draußen', c.outdoor, '°C', 1], ['Gewächshaus', c.greenhouse, '°C', 1], ['Regen heute', c.rain_day, 'mm', 1],

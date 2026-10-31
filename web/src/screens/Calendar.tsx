@@ -2,7 +2,7 @@
 // Phone: month picker + list; desktop adds the year grid (plant × month).
 import { useEffect, useState } from 'react';
 import { ApiError, CATEGORIES, api, type CalendarEntry, type Category } from '../api';
-import { Legal, TaskChip, monthName, taskColors, useWide } from '../components/ui';
+import { Legal, TaskChip, monthName, taskColors, useWide, Waiting } from '../components/ui';
 
 const isBirdProtection = (m: number) => m >= 2 && m <= 8; // index 0-11: March-September
 
@@ -52,7 +52,7 @@ export function Calendar() {
       <section className="stack" style={{ gap: 12 }}>
         <h2 style={{ fontSize: 24 }}>{monthName(month + 1)} {year}</h2>
         {isBirdProtection(month) && <Legal>1. März – 30. September: kein starker Rückschnitt von Hecken und Gehölzen. Schonende Pflegeschnitte sind erlaubt – vorher auf Nester prüfen.</Legal>}
-        {!months && !error && <p className="muted">Lädt …</p>}
+        {!months && !error && <p className="muted"><Waiting /></p>}
         {months && entries.length === 0 && <p className="box">In diesem Monat ist nichts geplant.</p>}
         {entries.map((e) => (
           <a key={e.task_id} href={`#/aufgabe-bearbeiten/${e.task_id}`} className="card stack" style={{ gap: 6, textDecoration: 'none', color: 'var(--ink)' }}>

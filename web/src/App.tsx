@@ -9,6 +9,7 @@ import { PlantDetail, PlantForm, Plants, Standorte } from './screens/Plants';
 import { More, Weather } from './screens/More';
 import { ChatView, Chats } from './screens/Chat';
 import { Settings } from './screens/Settings';
+import { DoctorPreview } from './screens/DoctorPreview';
 
 const KEY = 'garten-planer-welcomed-v2';
 function seen(): boolean {
@@ -34,6 +35,7 @@ export function App() {
       case 'standorte': return <Standorte />;
       case 'fragen': return arg ? <ChatView key={arg} id={arg} /> : <Chats />;
       case 'wetter': return <Weather />;
+      case 'vorschau-doktor': return <DoctorPreview />;
       case 'einstellungen': return <Settings />;
       case 'mehr': return <More onWelcome={() => setWelcomed(false)} />;
       default: return <Today />;

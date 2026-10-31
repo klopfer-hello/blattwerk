@@ -8,7 +8,7 @@ import {
   type PlanState, type Standort, type Task,
 } from '../api';
 import { MONTHS, plantById, standortById } from '../mock/data';
-import { Back, Chip, Icon, Legal, TaskChip, timingText } from '../components/ui';
+import { Back, Chip, Icon, Legal, TaskChip, timingText, Waiting } from '../components/ui';
 
 const LIGHT: Record<Light, { bg: string; fg: string }> = {
   sonnig: { bg: '#FDF1CF', fg: '#6B4A00' }, halbschattig: { bg: '#E9EEF0', fg: '#2F4550' }, schattig: { bg: '#E1E4EA', fg: '#2B3244' },
@@ -52,7 +52,7 @@ export function Plants() {
         </div>
       </header>
       {error && <p className="box" role="alert">{error.message}</p>}
-      {!plants && !error && <p className="muted">Lädt …</p>}
+      {!plants && !error && <p className="muted"><Waiting /></p>}
       {plants && plants.length === 0 && !archived && (
         <div className="box stack">
           <strong>Noch keine eigenen Pflanzen.</strong>
@@ -114,7 +114,7 @@ export function PlantDetail({ id }: { id: string }) {
   }, [id, tick]);
 
   if (error?.status === 404 && plantById(id)) return <DemoPlantDetail id={id} />;
-  if (!p) return <div className="page"><Back href="#/pflanzen" label="Pflanzen" /><p className="box">{error ? error.message : 'Lädt …'}</p></div>;
+  if (!p) return <div className="page"><Back href="#/pflanzen" label="Pflanzen" /><p className="box">{error ? error.message : <Waiting />}</p></div>;
 
   async function makePlan() {
     setError(null);
@@ -201,7 +201,7 @@ function CarePlanBox({ state, failed, archived, onMake, onReload }: {
         </>
       )}
       {!plan && !running && <span>Noch kein Pflegeplan. Die KI erstellt Schnitt, Düngung, Ernte und Pflanzenschutz passend zu Sorte und Standort.</span>}
-      {running && <span>Die KI erstellt den Pflegeplan … das dauert etwa eine Minute. Du kannst die Seite verlassen.</span>}
+      {running && <span className="stack" style={{ gap: 4 }}><Waiting text="Die KI erstellt den Pflegeplan …" /><span className="small muted">Das dauert etwa eine Minute. Du kannst die Seite verlassen.</span></span>}
       {job?.status === 'failed' && <span role="alert" style={{ color: 'var(--urgent)' }}>{job.error ?? 'Der Plan konnte nicht erstellt werden.'}</span>}
       {!archived && !running && <button className={plan ? 'btn' : 'btn primary'} onClick={onMake}>{plan ? 'Pflegeplan neu erstellen' : 'Pflegeplan erstellen'}</button>}
     </div>
@@ -478,7 +478,7 @@ export function PlantForm({ id }: { id?: string }) {
         <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error.message}</p>
       )}
       <button className="btn primary" onClick={save} disabled={saving || !v.species_id || !v.standort_id}>
-        {saving ? 'Speichert …' : id ? 'Speichern' : 'Pflanze anlegen'}
+        {saving ? <Waiting text="Speichert …" /> : id ? 'Speichern' : 'Pflanze anlegen'}
       </button>
       {!id && <span className="tiny" style={{ textAlign: 'center' }}>Den Pflegeplan erstellst du danach auf der Seite der Pflanze.</span>}
     </div>
@@ -493,7 +493,7 @@ function AiSuggestions({ ai, error, canAsk, onAsk, onPick }: {
   return (
     <div className="stack" style={{ gap: 8 }} aria-live="polite">
       {!ai && canAsk && <button className="btn" onClick={onAsk}>Nicht dabei? Mit KI suchen</button>}
-      {busy && <span className="small">Die KI sucht … (etwa 10–20 Sekunden)</span>}
+      {busy && <Waiting className="small" text="Die KI sucht … (etwa 10–20 Sekunden)" />}
       {ai?.status === 'failed' && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{ai.error}</span>}
       {ai?.status === 'done' && ai.candidates.length === 0 && <span className="small muted">Die KI kennt diese Pflanze auch nicht. Anders schreiben?</span>}
       {ai?.status === 'done' && ai.candidates.map((c, i) => (

@@ -3,7 +3,7 @@
 // to-dos and notes; they become real with "Ja" here.
 import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import { ApiError, api, type ChatAction, type ChatFull, type ChatSummary } from '../api';
-import { Back, Icon, deDate } from '../components/ui';
+import { Back, Icon, deDate, Waiting } from '../components/ui';
 
 const ASK_ERR: Record<number, string> = {
   409: 'Die vorige Antwort wird noch geschrieben.',
@@ -158,11 +158,11 @@ export function ChatView({ id }: { id: string }) {
     <div className="page">
       <div className="between"><Back href="#/fragen" label="Fragen" /><button className="btn small" style={{ minHeight: 44 }} disabled={!!pending} onClick={remove}>Löschen</button></div>
       {chat && <h1 className="title-s" style={{ fontSize: 20 }}>{chat.title}</h1>}
-      {!chat && !error && <p className="muted">Lädt …</p>}
+      {!chat && !error && <p className="muted"><Waiting /></p>}
       {chat?.messages.map((m) => m.role === 'user' ? <div key={m.id} className="bubble-me" style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div> : (
         <div key={m.id} className="stack" style={{ gap: 8 }}>
           <div className="bubble-ai" aria-live={m.id === pending?.id ? 'polite' : undefined}>
-            {(live?.id === m.id ? live.text : m.text) ? <Rich text={live?.id === m.id ? live.text : m.text} /> : <span className="muted">{m.status === 'failed' ? '' : 'Schaut im Garten nach …'}</span>}
+            {(live?.id === m.id ? live.text : m.text) ? <Rich text={live?.id === m.id ? live.text : m.text} /> : <span className="muted">{m.status === 'failed' ? '' : <Waiting text="Schaut im Garten nach …" />}</span>}
             {m.status === 'failed' && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{m.error ?? 'Die Antwort ist abgebrochen.'}</span>}
           </div>
           {m.actions.map((a) => <ActionCard key={a.id} a={a} onDecided={load} />)}

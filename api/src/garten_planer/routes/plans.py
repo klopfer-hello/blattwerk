@@ -7,6 +7,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import insert, select
+from sqlalchemy.ext.asyncio import AsyncConnection
 
 from garten_planer.catalog import ready
 from garten_planer.db import Conn
@@ -27,15 +28,26 @@ async def request_plan(pid: str, c: Conn, request: Request) -> dict[str, str]:
         raise ApiError(409, "plant is archived")
     if await used_today(c, plan_jobs, TZ) >= request.app.state.config.plan_daily_limit:
         raise ApiError(429, "daily plan limit reached")
+    jid = await queue_plan(c, pid, request.app.state.config.plan_daily_limit)
+    if jid is None:
+        raise ApiError(409, "a plan is already being made for this plant")
+    return {"job_id": jid}
+
+
+async def queue_plan(c: AsyncConnection, pid: str, daily_limit: int) -> str | None:
+    """Queue a plan for the plant; None when one is already on its way or the day's limit is
+    reached (then the plant page offers the button). Also used when a plant is added."""
+    if await used_today(c, plan_jobs, TZ) >= daily_limit:
+        return None
     await fail_stale(c, plan_jobs)
     busy = await c.execute(
         select(plan_jobs.c.id).where(plan_jobs.c.plant_id == pid, plan_jobs.c.status.in_(("queued", "running")))
     )
     if busy.first() is not None:
-        raise ApiError(409, "a plan is already being made for this plant")
+        return None
     jid = uuid.uuid4().hex
     await c.execute(insert(plan_jobs).values(id=jid, plant_id=pid, status="queued", created_at=datetime.now(UTC)))
-    return {"job_id": jid}
+    return jid
 
 
 @router.get("/plants/{pid}/plan")

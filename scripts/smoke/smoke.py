@@ -82,6 +82,7 @@ def screens(ids: dict[str, str]) -> dict[str, tuple[str, str]]:
         "fragen": ("#/fragen", "Fragen"), "mehr": ("#/mehr", "Mehr"), "wetter": ("#/wetter", "Wetter"),
         "einstellungen": ("#/einstellungen", "Einstellungen"), "standorte": ("#/standorte", "Standorte"),
         "warnung": ("#/warnung", "Wetterwarnungen"),
+        "doktor-vorschau": ("#/vorschau-doktor", "Pflanze krank?"),
     }  # fmt: skip
 
 

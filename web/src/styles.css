@@ -150,3 +150,13 @@ textarea.input { padding: 12px 14px; min-height: 96px; resize: vertical; }
 .yeargrid .mini { padding: 2px 4px; border-radius: 6px; font-size: 12px; font-weight: 700; text-align: center; }
 .linklike { background: none; border: 0; padding: 4px 0; min-height: 44px; color: var(--muted); text-decoration: underline; cursor: pointer; }
 .linkrow { display: inline-flex; align-items: center; min-height: 44px; }
+
+/* Waiting ("Wartekringel"): a ring that turns; with reduced motion a calm pulsing dot. */
+.spinner { display: inline-block; width: 1.1em; height: 1.1em; border-radius: 50%; border: 2.5px solid currentColor;
+  border-right-color: transparent; vertical-align: -0.2em; animation: spin 0.8s linear infinite; flex-shrink: 0; }
+.waiting { display: inline-flex; align-items: center; gap: 10px; }
+@keyframes spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  .spinner { border-right-color: currentColor; animation: pulse 1.6s ease-in-out infinite; }
+  @keyframes pulse { 50% { opacity: 0.35; } }
+}

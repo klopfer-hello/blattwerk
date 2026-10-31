@@ -37,6 +37,7 @@ const paths: Record<string, ReactNode> = {
   leaf: <><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.5 19 2c1 2 2 4.2 2 8 0 5.5-4.8 10-10 10Z" /><path d="M2 21c0-3 1.9-5.4 5.2-6" /></>,
   plus: <path d="M12 5v14M5 12h14" />,
   tick: <path d="M20 6 9 17l-5-5" />,
+  camera: <><path d="M4 8h3l2-3h6l2 3h3v11H4z" /><circle cx="12" cy="13" r="3.5" /></>,
   send: <><path d="M22 2 11 13" /><path d="M22 2 15 22l-4-9-9-4 20-7z" /></>,
   cloud: <path d="M17.5 19H9a7 7 0 1 1 6.7-9h1.8a4.5 4.5 0 1 1 0 9Z" />,
   more: <><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>,
@@ -164,4 +165,9 @@ export function timingText(t: Pick<TaskIn, 'recurrence' | 'due_date' | 'month_fr
   }
   if (t.month_from === t.month_to) return `jedes Jahr im ${monthName(t.month_from ?? 1)}`;
   return `jedes Jahr ${monthName(t.month_from ?? 1)}–${monthName(t.month_to ?? 1)}`;
+}
+
+/** The app is waiting for something: a turning ring with a short text (announced to screen readers). */
+export function Waiting({ text = 'Lädt …', className }: { text?: string; className?: string }) {
+  return <span className={`waiting ${className ?? ''}`} role="status" aria-live="polite"><span className="spinner" aria-hidden="true" />{text}</span>;
 }

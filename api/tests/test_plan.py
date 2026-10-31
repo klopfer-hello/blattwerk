@@ -141,9 +141,7 @@ def fake(result: dict[str, Any] | Exception, seen: list[str] | None = None) -> A
 
 def test_plan_job_creates_tasks_through_the_legal_rules(client: TestClient) -> None:
     client.app.dependency_overrides[now] = lambda: datetime.combine(date(2026, 6, 10), time(10), TZ)  # type: ignore[attr-defined]
-    pid = hedge(client)
-    r = client.post(f"/api/plants/{pid}/plan", headers=H)
-    assert r.status_code == 202
+    pid = hedge(client)  # the plan is queued with the plant
     assert client.post(f"/api/plants/{pid}/plan", headers=H).status_code == 409  # one at a time
     seen: list[str] = []
     assert work(fake(answer(), seen)) == 1
@@ -322,3 +320,44 @@ def test_dry_keeps_german_text_whole(text: str, dried: str) -> None:
     from garten_planer.plan import dry
 
     assert dry(text) == dried
+
+
+# ----- automatic plan (user request 2026-11-01) ---------------------------------------------------
+
+
+def plan_jobs_count(db: Engine) -> int:
+    with db.connect() as c:
+        return int(c.execute(text("SELECT count(*) FROM plan_jobs")).scalar() or 0)
+
+
+def test_a_new_plant_gets_its_plan_queued(client: TestClient, db: Engine) -> None:
+    pid = hedge(client)
+    assert plan_jobs_count(db) == 1
+    assert client.get(f"/api/plants/{pid}/plan").json()["job"]["status"] == "queued"
+
+
+def test_changing_species_or_sorte_queues_a_new_plan_other_edits_do_not(client: TestClient, db: Engine) -> None:
+    pid = hedge(client)
+    work(fake(answer()))
+    p = client.get(f"/api/plants/{pid}").json()
+    body = {"species_id": p["species"]["id"], "cultivar_id": None, "standort_id": p["standort"]["id"],
+            "nickname": None, "form": "Strauch", "rootstock": None, "planted_year": 2021, "girth_cm": None,
+            "in_container": False, "notes": ""}  # fmt: skip
+    client.put(f"/api/plants/{pid}", json=body, headers=H)
+    assert plan_jobs_count(db) == 1  # form changed: no new plan by itself
+    client.put(f"/api/plants/{pid}", json=body | {"species_id": "fagus-sylvatica"}, headers=H)
+    assert plan_jobs_count(db) == 2
+
+
+def test_no_automatic_plan_over_the_daily_limit(client: TestClient, db: Engine) -> None:
+    st = client.post("/api/standorte", json={"name": "N", "light": "sonnig", "type": "beet"}, headers=H).json()
+    first = client.post("/api/plants", json={"species_id": "malus-domestica", "standort_id": st["id"]}, headers=H)
+    with db.begin() as c:
+        c.execute(text("UPDATE plan_jobs SET status = 'done', started_at = now()"))
+        sql = (
+            "INSERT INTO plan_jobs (id, plant_id, status, created_at, started_at) VALUES (:i, :p, 'done', now(), now())"
+        )
+        for i in range(60):
+            c.execute(text(sql), {"i": f"x{i}", "p": first.json()["id"]})
+    r = client.post("/api/plants", json={"species_id": "pyrus-communis", "standort_id": st["id"]}, headers=H)
+    assert r.status_code == 201 and plan_jobs_count(db) == 61
