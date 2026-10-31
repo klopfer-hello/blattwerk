@@ -4,8 +4,8 @@ events and actions out; wetterwacht does the IO.
 Events within the next 48 h, at most one per kind and local day:
 - strong_frost: air ≤ -10 °C, any time of year
 - frost: air ≤ -2 °C outside the season where frost is expected (Nov-Mar)
-- late_frost: from 15 April to the end of May (blossom; until M7 knows the real
-  Vollfrühling) air ≤ 0 °C or ground ≤ -1 °C
+- late_frost: from the start of Vollfrühling (apple blossom in the region, M7; 15 April
+  without data) to the end of May: air ≤ 0 °C or ground ≤ -1 °C
 - heat: air ≥ 32 °C; storm: gusts ≥ 75 km/h
 An active alert only ends when the forecast is clearly better (hysteresis, so a
 value near the threshold does not flap). Actions never include watering (F-CP-6)."""
@@ -96,15 +96,17 @@ def daily(hours: list[Hour], now: datetime, night: bool = False) -> dict[date, D
     return dict(days)
 
 
-def _late_frost_season(d: date) -> bool:
-    return (d.month == 4 and d.day >= 15) or d.month == 5
+def _late_frost_season(d: date, late_from: date | None = None) -> bool:
+    """From the apple blossom (Vollfrühling, M7) or 15 April to the end of May."""
+    start = late_from if late_from is not None and late_from.year == d.year else date(d.year, 4, 15)
+    return start <= d <= date(d.year, 5, 31)
 
 
-def _frost(day: date, s: Day) -> tuple[str, float] | None:
+def _frost(day: date, s: Day, late_from: date | None) -> tuple[str, float] | None:
     air, ground = s.air_min, s.ground_min
     if air is not None and air <= STRONG_FROST:
         return "strong_frost", air
-    if _late_frost_season(day):
+    if _late_frost_season(day, late_from):
         if (air is not None and air <= LATE_FROST_AIR) or (ground is not None and ground <= LATE_FROST_GROUND):
             return "late_frost", min(v for v in (air, ground) if v is not None)
         return None
@@ -117,10 +119,11 @@ def _first(s: Day, hit: Callable[[Hour], bool]) -> datetime:
     return next((h.time for h in sorted(s.hours, key=lambda h: h.time) if hit(h)), s.hours[0].time)
 
 
-def detect(hours: list[Hour], now: datetime) -> list[Event]:
+def detect(hours: list[Hour], now: datetime, late_from: date | None = None) -> list[Event]:
+    """`late_from`: start of Vollfrühling this year (apple blossom, M7); 15 April without it."""
     events = []
     for day, s in sorted(daily(hours, now, night=True).items()):
-        if found := _frost(day, s):
+        if found := _frost(day, s, late_from):
             kind, value = found
             limit = {"strong_frost": STRONG_FROST, "frost": FROST, "late_frost": LATE_FROST_AIR}[kind]
 
@@ -151,14 +154,20 @@ def window(kind: str, day: date) -> tuple[datetime, datetime]:
     return start, start + timedelta(days=1)
 
 
-def all_clear(kind: str, day: date, s: Day | None, now: datetime) -> bool:
+def all_clear(kind: str, day: date, s: Day | None, now: datetime, late_from: date | None = None) -> bool:
     """Clearly better and still ahead: only before the window starts, and only when the
     forecast covers the whole window (a half-covered day says nothing about the rest)."""
     start, end = window(kind, day)
     if s is None or now >= start or end > now + LEAD:
         return False
     if kind in FROST_KINDS:  # the family clears by the rule of the season, not of the last kind
-        kind = "late_frost" if _late_frost_season(day) else "strong_frost" if day.month in FROST_EXPECTED else "frost"
+        kind = (
+            "late_frost"
+            if _late_frost_season(day, late_from)
+            else "strong_frost"
+            if day.month in FROST_EXPECTED
+            else "frost"
+        )
     return cleared(kind, s)
 
 

@@ -195,6 +195,20 @@ Month = Annotated[int, Field(ge=1, le=12)]
 Day = Annotated[date, Field(ge=date(2000, 1, 1), le=date(2100, 12, 31))]  # keeps date maths bounded
 
 
+PhaseKey = Literal[
+    "vorfruehling",
+    "erstfruehling",
+    "vollfruehling",
+    "fruehsommer",
+    "hochsommer",
+    "spaetsommer",
+    "fruehherbst",
+    "vollherbst",
+    "spaetherbst",
+    "winter",
+]  # fmt: skip  (pheno.PHASES, M7)
+
+
 class TaskIn(Strict):
     """F-TD/F-CP-7: what should be done, and when. No watering category (F-CP-6)."""
 
@@ -210,6 +224,9 @@ class TaskIn(Strict):
     interval_days: Annotated[int | None, Field(ge=1, le=3650)] = None
     start_date: Day | None = None
     urgent: bool = False
+    pheno_phase: PhaseKey | None = None  # F-WX-3: follow the season (yearly only; month window = fallback)
+    pheno_offset: Annotated[int, Field(ge=-60, le=120)] = 0
+    pheno_window: Annotated[int, Field(ge=1, le=60)] = 14
 
     @model_validator(mode="after")
     def _timing(self) -> "TaskIn":
@@ -217,6 +234,8 @@ class TaskIn(Strict):
         missing = [f for f in needs[self.recurrence] if getattr(self, f) is None]
         if missing:
             raise ValueError(f"{self.recurrence} needs {', '.join(missing)}")
+        if self.pheno_phase is not None and self.recurrence != "yearly":
+            raise ValueError("a phenological trigger needs a yearly task")
         if (self.category == "schnitt") != (self.cut_type is not None):
             raise ValueError("cut_type is required for Schnitt and only allowed there")
         return self

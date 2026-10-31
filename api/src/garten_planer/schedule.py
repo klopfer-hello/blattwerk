@@ -1,7 +1,8 @@
 """Date logic of the to-do engine (pure, no DB).
 
 A task's timing is `once` (a date), `yearly` (a month window, may wrap the year
-end: Nov-Feb) or `interval` (every n days, counted from the day the previous
+end: Nov-Feb; or, with a phenological trigger, a window from the phase start of that
+year, the month window being the fallback, M7) or `interval` (every n days, counted from the day the previous
 occurrence was done or skipped). `occurrences()` lists what should exist as a
 to-do today (current/upcoming within HORIZON_DAYS; past yearly windows are not
 created after the fact, an overdue `once` is). `period` is the stable key of an
@@ -25,6 +26,9 @@ class TaskTiming:
     month_to: int | None = None
     interval_days: int | None = None
     start_date: date | None = None
+    pheno_phase: str | None = None  # e.g. "erstfruehling": from the Forsythia blossom
+    pheno_offset: int = 0  # days after (negative: before) the phase start
+    pheno_window: int = 14  # days the to-do stays due
 
 
 @dataclass(frozen=True)
@@ -36,6 +40,7 @@ class Occurrence:
 
 
 Adjust = Callable[[date, date], tuple[date, date, str]]
+PhaseStart = Callable[[int], date | None]  # year -> start of the task's phase (observed, reported or expected)
 
 
 def _apply(o: Occurrence, adjust: Adjust | None) -> Occurrence:
@@ -64,8 +69,21 @@ def interval_after(closed_on: date, days: int) -> Occurrence:
     return Occurrence(start.isoformat(), start, start + timedelta(days=_slack(days)))
 
 
+def yearly_span(t: TaskTiming, year: int, phase_start: PhaseStart | None) -> tuple[date, date]:
+    assert t.month_from is not None and t.month_to is not None
+    start = phase_start(year) if t.pheno_phase and phase_start else None
+    if start is None:
+        return yearly_window(year, t.month_from, t.month_to)
+    first = start + timedelta(days=t.pheno_offset)
+    return first, first + timedelta(days=t.pheno_window)
+
+
 def occurrences(
-    t: TaskTiming, today: date, adjust: Adjust | None = None, horizon_days: int = HORIZON_DAYS
+    t: TaskTiming,
+    today: date,
+    adjust: Adjust | None = None,
+    horizon_days: int = HORIZON_DAYS,
+    phase_start: PhaseStart | None = None,
 ) -> list[Occurrence]:
     """`adjust` (the legal rules) runs before the relevance check, so a June window
     moved to October is still created in October."""
@@ -78,7 +96,7 @@ def occurrences(
         assert t.month_from is not None and t.month_to is not None
         out = []
         for year in (today.year - 1, today.year, today.year + 1):
-            o = _apply(Occurrence(str(year), *yearly_window(year, t.month_from, t.month_to)), adjust)
+            o = _apply(Occurrence(str(year), *yearly_span(t, year, phase_start)), adjust)
             if o.due_to >= today and o.due_from <= horizon:
                 out.append(o)
         return out

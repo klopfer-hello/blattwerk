@@ -27,6 +27,7 @@ from garten_planer.config import Config
 from garten_planer.influx import Influx, InfluxError, from_config
 from garten_planer.routes.todos import TZ, materialize
 from garten_planer.schema import plants, push_subs, species, standorte, tasks, todos, weather_alerts
+from garten_planer.season_dates import late_frost_from, safe_phase_starts
 from garten_planer.worker import _settings, enqueue
 
 log = logging.getLogger("garten_planer.wetterwacht")
@@ -205,7 +206,9 @@ async def run_once(engine: AsyncEngine, forecast: list[Hour], now: datetime) -> 
     event just moved to a neighbouring day); after its window -> past (no push)."""
     today = now.astimezone(TZ).date()
     counts = {"created": 0, "worse": 0, "cancelled": 0, "past": 0}
-    events = alerts.detect(forecast, now)
+    async with engine.connect() as c:
+        late_from = late_frost_from(await safe_phase_starts(c, today), today.year)
+    events = alerts.detect(forecast, now, late_from)
     days, nights = alerts.daily(forecast, now), alerts.daily(forecast, now, night=True)
     async with engine.begin() as c:
         push_on = (await _settings(c)).notifications.weather_push
@@ -258,7 +261,7 @@ async def run_once(engine: AsyncEngine, forecast: list[Hour], now: datetime) -> 
                 counts["past"] += 1
                 continue
             stats = (nights if old.family == "frost" else days).get(old.day)
-            if not alerts.all_clear(old.kind, old.day, stats, now):
+            if not alerts.all_clear(old.kind, old.day, stats, now, late_from):
                 continue  # still ahead but not clearly better, or already running: keep it
             await _end(c, old.id, "cancelled")
             moved = any((old.family, old.day + timedelta(days=d)) in event_days for d in (-1, 1))

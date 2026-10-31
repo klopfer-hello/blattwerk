@@ -145,3 +145,4 @@ textarea.input { padding: 12px 14px; min-height: 96px; resize: vertical; }
 .yeargrid .now { background: var(--surface); }
 .yeargrid .plant { padding: 10px 14px; }
 .yeargrid .mini { padding: 2px 4px; border-radius: 6px; font-size: 12px; font-weight: 700; text-align: center; }
+.linklike { background: none; border: 0; padding: 4px 0; min-height: 44px; color: var(--muted); text-decoration: underline; cursor: pointer; }

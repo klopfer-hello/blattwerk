@@ -2,7 +2,7 @@
 // router (no dependency; the phone's back button works through the history).
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Category, Todo } from '../mock/data';
-import { CATEGORIES, type Category as ApiCategory, type LegalNote, type TaskIn } from '../api';
+import { CATEGORIES, type Category as ApiCategory, type LegalNote, type TaskIn, PHASES } from '../api';
 
 export function useRoute(): string[] {
   const read = () => (window.location.hash.replace(/^#\/?/, '') || 'heute').split('/');
@@ -154,9 +154,14 @@ export const localDay = (ts: string) => new Date(ts).toLocaleDateString('de-DE')
 export const localIso = (days = 0) => { const d = new Date(); d.setDate(d.getDate() + days); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
 
 /** "jedes Jahr im November", "jedes Jahr November–Februar", "alle 7 Tage", "einmalig am 5.12.2026" */
-export function timingText(t: Pick<TaskIn, 'recurrence' | 'due_date' | 'month_from' | 'month_to' | 'interval_days'>): string {
+export function timingText(t: Pick<TaskIn, 'recurrence' | 'due_date' | 'month_from' | 'month_to' | 'interval_days' | 'pheno_phase' | 'pheno_offset'>): string {
   if (t.recurrence === 'once') return t.due_date ? `einmalig am ${deDate(t.due_date)}` : 'einmalig';
   if (t.recurrence === 'interval') return t.interval_days === 1 ? 'täglich' : `alle ${t.interval_days} Tage`;
+  const phase = t.pheno_phase ? PHASES.find(([k]) => k === t.pheno_phase) : undefined;
+  if (phase) {
+    const off = t.pheno_offset ?? 0;
+    return `jedes Jahr zur ${phase[2]}${off ? ` ${off > 0 ? '+' : '−'}${Math.abs(off)} Tage` : ''} (${phase[1]})`;
+  }
   if (t.month_from === t.month_to) return `jedes Jahr im ${monthName(t.month_from ?? 1)}`;
   return `jedes Jahr ${monthName(t.month_from ?? 1)}–${monthName(t.month_to ?? 1)}`;
 }

@@ -1,7 +1,7 @@
 // To-do detail (one occurrence: note, done/undo, skip, postpone) and the task
 // form (what and when: once / every year in a month window / every n days).
 import { useEffect, useState } from 'react';
-import { ApiError, CATEGORIES, api, type Category, type LegalNote, type Plant, type Recurrence, type Task, type TaskIn, type Todo } from '../api';
+import { ApiError, CATEGORIES, api, type Category, type LegalNote, type Plant, type PhaseKey, type Recurrence, type Task, type TaskIn, PHASES, type Todo } from '../api';
 import { Back, Legal, LegalNotes, TaskChip, deDate, localIso, monthName, timingText } from '../components/ui';
 import { UNDO_409 } from './Today';
 
@@ -100,6 +100,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       ...v,
       due_date: v.recurrence === 'once' ? v.due_date : null,
       month_from: v.recurrence === 'yearly' ? v.month_from : null, month_to: v.recurrence === 'yearly' ? v.month_to : null,
+      pheno_phase: v.recurrence === 'yearly' ? v.pheno_phase ?? null : null,
       interval_days: v.recurrence === 'interval' ? v.interval_days : null, start_date: v.recurrence === 'interval' ? v.start_date : null,
     };
     try {
@@ -163,10 +164,26 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
         </div>
       </div>
       {v.recurrence === 'yearly' && (
-        <div className="grid2">
-          {monthSelect('Von', v.month_from, (m) => set({ month_from: m }), 'mfrom')}
-          {monthSelect('Bis', v.month_to, (m) => set({ month_to: m }), 'mto')}
-        </div>
+        <>
+          <div className="grid2">
+            {monthSelect('Von', v.month_from, (m) => set({ month_from: m }), 'mfrom')}
+            {monthSelect('Bis', v.month_to, (m) => set({ month_to: m }), 'mto')}
+          </div>
+          <div className="field">
+            <label htmlFor="pheno">An die Jahreszeit koppeln (optional)</label>
+            <select id="pheno" className="input" value={v.pheno_phase ?? ''} onChange={(e) => set({ pheno_phase: (e.target.value || null) as PhaseKey | null })}>
+              <option value="">nein – nach Monaten</option>
+              {PHASES.map(([k, name, ind]) => <option key={k} value={k}>zur {ind} ({name})</option>)}
+            </select>
+            {v.pheno_phase && <span className="small muted">Der Termin folgt der echten Jahreszeit in deiner Region (oder deiner Beobachtung). Die Monate oben gelten, solange es dafür noch keine Daten gibt.</span>}
+          </div>
+          {v.pheno_phase && (
+            <div className="grid2">
+              <div className="field"><label htmlFor="poff">Tage danach (− = davor)</label><NumberField id="poff" value={v.pheno_offset ?? 0} min={-60} max={120} onChange={(n) => set({ pheno_offset: n })} invalid={!!fieldErr('pheno_offset')} /></div>
+              <div className="field"><label htmlFor="pwin">Zeitraum (Tage)</label><NumberField id="pwin" value={v.pheno_window ?? 14} min={1} max={60} onChange={(n) => set({ pheno_window: n })} invalid={!!fieldErr('pheno_window')} /></div>
+            </div>
+          )}
+        </>
       )}
       {v.recurrence === 'interval' && (
         <div className="grid2">
@@ -201,6 +218,21 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       <button className="btn primary" onClick={save} disabled={saving || !v.title.trim()}>{saving ? 'Speichert …' : 'Speichern'}</button>
       {id && <button className="btn" onClick={toggleEnabled}>{enabled ? 'Aufgabe pausieren (aus der Liste nehmen)' : 'Aufgabe wieder aktivieren'}</button>}
     </div>
+  );
+}
+
+// A whole number that may be negative: typed as text (so "-" can be typed), stored when it parses.
+function NumberField({ id, value, min, max, onChange, invalid }: { id: string; value: number; min: number; max: number; onChange: (n: number) => void; invalid: boolean }) {
+  const [raw, setRaw] = useState(String(value));
+  useEffect(() => { setRaw((r) => (Number(r) === value ? r : String(value))); }, [value]);
+  const n = Number(raw);
+  const bad = raw.trim() === '' || !Number.isInteger(n) || n < min || n > max;
+  return (
+    <>
+      <input id={id} className="input" inputMode="text" value={raw} aria-invalid={invalid || bad}
+        onChange={(e) => { setRaw(e.target.value); const x = Number(e.target.value); if (e.target.value.trim() !== '' && Number.isInteger(x) && x >= min && x <= max) onChange(x); }} />
+      {bad && <span className="small" style={{ color: 'var(--urgent)' }}>Ganze Zahl von {min} bis {max}.</span>}
+    </>
   );
 }
 

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, CATEGORIES, api, type Category, type Heute, type Todo, type WeatherAlert } from '../api';
 import { Back, Icon, TaskChip, deDate, localDay, monthName } from '../components/ui';
+import { delayText } from './More';
 
 const ORDER = Object.keys(CATEGORIES) as Category[];
 export const UNDO_409 = 'Diese Aufgabe wurde inzwischen geändert – der Eintrag bleibt als Verlauf erhalten.';
@@ -40,7 +41,10 @@ export function Today() {
     <div className="page">
       <header className="stack" style={{ gap: 12 }}>
         <div className="between">
-          <span className="muted">{WEEKDAY[now.getDay()]}, {now.getDate()}. {monthName(now.getMonth() + 1)}</span>
+          <span className="stack" style={{ gap: 2 }}>
+            <span className="muted">{WEEKDAY[now.getDay()]}, {now.getDate()}. {monthName(now.getMonth() + 1)}</span>
+            <SeasonChip />
+          </span>
           <a href="#/aufgabe-neu" className="btn small"><Icon name="plus" size={18} />Aufgabe</a>
         </div>
         <h1 className="title">ToDos im {data ? monthName(data.month) : monthName(now.getMonth() + 1)}</h1>
@@ -105,6 +109,17 @@ export function TodoItem({ t, busy, onToggle }: { t: Todo; busy: boolean; onTogg
         {!done && t.legal_adjustment && <span className="small" style={{ color: 'var(--legal)', fontWeight: 700 }}>{t.legal_adjustment.startsWith('Verschoben') ? '§ verschoben (Vogelschutzzeit)' : '§ Zeitraum angepasst (Vogelschutzzeit)'}</span>}
       </a>
     </div>
+  );
+}
+
+function SeasonChip() {
+  const s = usePolled(api.season);
+  if (!s?.current) return null;
+  const d = s.current.delay_days;
+  return (
+    <a href="#/wetter" className="small" style={{ color: 'var(--green)', fontWeight: 700, textDecoration: 'none', minHeight: 44, display: 'inline-flex', alignItems: 'center' }}>
+      {s.current.name}{d !== null && d !== 0 ? ` · ${delayText(d)}` : ''}
+    </a>
   );
 }
 

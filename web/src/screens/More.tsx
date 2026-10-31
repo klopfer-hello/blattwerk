@@ -1,8 +1,7 @@
 import { useEffect, useState } from 'react';
-import { api, type GardenSettings, type Reading, type Weather as WeatherData } from '../api';
+import { ApiError, api, type GardenSettings, type Reading, type Season, type Weather as WeatherData } from '../api';
 import { FERTILISER } from './Settings';
-import { SEASON, SEASONS } from '../mock/data';
-import { Back, Icon } from '../components/ui';
+import { Back, Icon, localIso } from '../components/ui';
 
 export function Chat() {
   const [answer, setAnswer] = useState<'yes' | 'no' | null>(null);
@@ -126,6 +125,84 @@ function WeatherNow() {
   );
 }
 
+const SOURCE = { dwd: 'DWD-Meldungen der Region', garten: 'deine Beobachtung', mittel: 'langjähriges Mittel' } as const;
+const shortDay = (iso: string) => new Date(`${iso}T12:00:00`).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
+export const delayText = (d: number | null) => (d === null ? '' : d === 0 ? 'wie im Mittel' : d > 0 ? `${d} ${d === 1 ? 'Tag' : 'Tage'} später` : `${-d} ${d === -1 ? 'Tag' : 'Tage'} früher`);
+
+function SeasonPanel() {
+  const [s, setS] = useState<Season | null>(null);
+  const [failed, setFailed] = useState(false);
+  const [open, setOpen] = useState(false);
+  const [phase, setPhase] = useState('');
+  const [day, setDay] = useState(localIso());
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  useEffect(() => { api.season().then(setS, () => setFailed(true)); }, []);
+  if (failed) return <p className="box">Die Jahreszeit konnte nicht geladen werden.</p>;
+  if (!s) return null;
+  const idx = s.current ? s.phases.findIndex((p) => p.key === s.current!.key) : -1;
+  const next = s.next;
+  const year = new Date().getFullYear();
+  async function save() {
+    setBusy(true); setError('');
+    try { setS(await api.observe(phase, day)); setOpen(false); } catch (e) {
+      setError(e instanceof ApiError && e.fields.day === 'implausible' ? 'Das Datum passt nicht zu dieser Jahreszeit – bitte prüfen.' : 'Konnte nicht gespeichert werden.');
+    } finally { setBusy(false); }
+  }
+  async function undo(key: string) {
+    setError('');
+    try { await api.unobserve(key); setS(await api.season()); } catch { setError('Konnte nicht gelöscht werden.'); }
+  }
+  return (
+    <section className="stack">
+      <h2 className="eyebrow">Phänologischer Kalender</h2>
+      <div className="box stack" style={{ gap: 4 }}>
+        {s.current ? (
+          <>
+            <strong style={{ fontSize: 18 }}>{s.current.name}</strong>
+            <span className="small">seit {shortDay(s.current.since)}{s.current.delay_days !== null ? ` · ${delayText(s.current.delay_days)}` : ''} · {SOURCE[s.current.source]}{s.current.reports > 1 ? ` (${s.current.reports} Meldungen)` : ''}</span>
+          </>
+        ) : <span>Die Jahreszeit wird gerade aus den DWD-Daten der Region berechnet.</span>}
+        {next?.expected && <span className="small muted">Als Nächstes: {next.name} ({next.indicator}), etwa ab {shortDay(next.expected)}</span>}
+        {s.gdd && <span className="small muted">Wärmesumme seit 1.1.: {Math.round(s.gdd.sum)} °C·Tage (im Mittel {Math.round(s.gdd.normal)}){s.gdd.days_ahead !== null && s.gdd.days_ahead !== 0 ? ` – etwa ${Math.abs(s.gdd.days_ahead)} Tage ${s.gdd.days_ahead > 0 ? 'früher' : 'später'} als im Mittel` : ''}</span>}
+      </div>
+      <div className="stack" style={{ gap: 2 }}>
+        {s.phases.map((p, i) => (
+          <div key={p.key} className={i === idx ? 'season now' : p.date && i < idx ? 'season past' : 'season'}>
+            <span>{p.name}<span className="tiny" style={{ display: 'block', fontWeight: 400 }}>{p.indicator}</span></span>
+            <span className="small" style={{ textAlign: 'right' }}>
+              {p.date ? <>{shortDay(p.date)}{p.source === 'garten' ? ' · selbst' : ''}</> : p.expected ? `≈ ${shortDay(p.expected)}` : ''}
+              {p.source === 'garten' && <button className="linklike tiny" style={{ display: 'block', marginLeft: 'auto' }} onClick={() => undo(p.key)}>löschen</button>}
+            </span>
+          </div>
+        ))}
+      </div>
+      <span className="tiny">Quellen: DWD-Phänologie (Sofortmelder der Region, Mittel 1991–2020), Wärmesumme aus Open-Meteo.com, deine Beobachtungen.{!s.region_ready ? ' Das langjährige Mittel der Region wird gerade berechnet.' : ''}</span>
+      {error && !open && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{error}</span>}
+      {!open && <button className="btn" style={{ borderColor: 'var(--green)', color: 'var(--green)', fontWeight: 700 }} onClick={() => { setPhase(next?.key ?? s.phases[0].key); setOpen(true); }}>Beobachtung melden (z. B. „Hasel blüht“)</button>}
+      {open && (
+        <div className="box stack" style={{ gap: 10 }}>
+          <div className="field">
+            <label htmlFor="obs-phase">Was hast du beobachtet?</label>
+            <select id="obs-phase" className="input" value={phase} onChange={(e) => setPhase(e.target.value)}>
+              {s.phases.map((p) => <option key={p.key} value={p.key}>{p.indicator} ({p.name})</option>)}
+            </select>
+          </div>
+          <div className="field">
+            <label htmlFor="obs-day">Wann?</label>
+            <input id="obs-day" className="input" type="date" value={day} min={phase === 'winter' ? `${year - 1}-09-01` : `${year}-01-01`} max={localIso()} onChange={(e) => setDay(e.target.value)} />
+          </div>
+          {error && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{error}</span>}
+          <div className="grid2">
+            <button className="btn" onClick={() => setOpen(false)}>Abbrechen</button>
+            <button className="btn primary" onClick={save} disabled={busy || !phase || !day}>Speichern</button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
 export function Weather() {
   const [s, setS] = useState<GardenSettings | null>(null);
   const [failed, setFailed] = useState(false);
@@ -145,18 +222,7 @@ export function Weather() {
       <WeatherNow />
       <a href="#/warnung" className="small">Wetterwarnungen ›</a>
 
-      <section className="stack">
-        <h2 className="eyebrow">Phänologischer Kalender · Vorschau (M7)</h2>
-        <div className="stack" style={{ gap: 2 }}>
-          {SEASONS.map((s, i) => (
-            <div key={s} className={i === SEASON.index ? 'season now' : i < SEASON.index ? 'season past' : 'season'}>
-              <span>{s}</span><span className="small">{i === SEASON.index ? 'jetzt' : i < SEASON.index ? '✓' : ''}</span>
-            </div>
-          ))}
-        </div>
-        <span className="small" style={{ color: 'var(--ink-2)' }}>{SEASON.name} seit {SEASON.since} (Laubfall), <strong>{SEASON.delayDays} Tage später als im Mittel</strong>. Quellen: DWD-Meldungen der Region, Wärmesumme, deine Beobachtungen.</span>
-        <button className="btn" style={{ borderColor: 'var(--green)', color: 'var(--green)', fontWeight: 700 }}>Beobachtung melden (z. B. „Hasel blüht“)</button>
-      </section>
+      <SeasonPanel />
 
       <section className="stack" style={{ gap: 0, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <h2 style={{ fontSize: 20, marginBottom: 6 }}>Einstellungen</h2>

@@ -147,6 +147,9 @@ tasks = Table(
     Column("month_to", SmallInteger),
     Column("interval_days", Integer),
     Column("start_date", Date),
+    Column("pheno_phase", Text),  # F-WX-3: window from this phase start (M7); month window = fallback
+    Column("pheno_offset", SmallInteger, nullable=False, server_default="0"),
+    Column("pheno_window", SmallInteger, nullable=False, server_default="14"),
     Column("urgent", Boolean, nullable=False),
     Column("source", Text, nullable=False),
     Column("plan_id", Text, ForeignKey("care_plans.id", ondelete="RESTRICT")),  # source "plan": which plan
@@ -310,4 +313,25 @@ weather_alerts = Table(  # one per weather event (kind + local day), F-WX-4; wri
     CheckConstraint(_in("status", ("active", "cancelled", "past")), name="status"),
     CheckConstraint(_in("family", ("frost", "heat", "storm")), name="family"),
     UniqueConstraint("family", "day", name="uq_weather_alerts_family_day"),
+)
+
+pheno_events = Table(  # entry date of an indicator phase per year and source (M7, F-WX-2)
+    "pheno_events",
+    metadata,
+    Column("year", Integer, primary_key=True),
+    Column("phase", Text, primary_key=True),
+    Column("source", Text, primary_key=True),  # dwd (region median) | garten (own observation)
+    Column("day", Date, nullable=False),
+    Column("reports", Integer, nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(_in("source", ("dwd", "garten")), name="source"),
+)
+
+pheno_normals = Table(  # long-term median day of year 1991-2020 per phase in the region
+    "pheno_normals",
+    metadata,
+    Column("phase", Text, primary_key=True),
+    Column("doy", Integer, nullable=False),
+    Column("stations", Integer, nullable=False),  # number of (station, year) values behind it
+    Column("computed_at", DateTime(timezone=True), nullable=False),
 )

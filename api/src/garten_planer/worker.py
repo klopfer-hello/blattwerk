@@ -21,7 +21,7 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-from garten_planer import mosmix, names
+from garten_planer import mosmix, names, pheno_fetch
 from garten_planer.claude_cli import ClaudeError, binary_path, config_from_env, ensure_cli, run_json
 from garten_planer.config import Config
 from garten_planer.digest import digest_due, digest_text
@@ -53,6 +53,8 @@ from garten_planer.schema import (
 )
 
 FORECAST_S = 3600  # MOSMIX_L is issued every 6 h; hourly keeps the newest
+SEASON_S = 24 * 3600
+SEASON_RETRY_S = 3600
 FORECAST_RETRY_S = 300  # influxdb still starting, DWD briefly down
 PLAN_LOOP_S = 5  # the user waits for the plan; a cheap indexed query
 LOOP_S = 30
@@ -215,12 +217,15 @@ async def main() -> None:
         log.warning("no GP_VAPID_PRIVATE: push disabled")
     plans = asyncio.create_task(ai_loops(engine, cfg))  # own loops: a plan takes minutes
     forecast = asyncio.create_task(forecast_loop(cfg))
+    seasons = asyncio.create_task(season_loop(engine, cfg))
     log.info("worker started")
     while True:
         if plans.done():  # a crash there must not go unnoticed: stop, the restart policy brings us back
             raise RuntimeError("AI loops stopped")
         if forecast.done() and forecast.exception() is not None:
             raise RuntimeError("forecast loop stopped")
+        if seasons.done() and seasons.exception() is not None:
+            raise RuntimeError("season loop stopped")
         try:
             if sender is not None and (count := await run_digest(engine, datetime.now(TZ))):
                 log.info("digest with %d to-dos queued", count)
@@ -427,6 +432,33 @@ async def forecast_loop(cfg: Config) -> None:
         except Exception as e:  # keep running; type only
             log.warning("dwd forecast failed: %s", type(e).__name__)
             await asyncio.sleep(FORECAST_RETRY_S)
+
+
+async def season_loop(engine: AsyncEngine, cfg: Config) -> None:
+    """Phenology and growing degree days once a day; normals once per region (M7a)."""
+    if cfg.lat is None or cfg.lon is None:
+        log.warning("no GP_LAT/GP_LON: phenological season from the normal calendar only")
+        return
+    lat, lon = cfg.lat, cfg.lon
+    while True:
+        today = datetime.now(TZ).date()
+        ok = True
+        for name, job in (
+            ("phenology", lambda d=today: pheno_fetch.update_current(engine, lat, lon, d)),
+            ("growing degree days", lambda d=today: pheno_fetch.update_gdd(engine, lat, lon, d)),
+        ):
+            try:
+                log.info("%s: %s", name, await job())
+            except Exception as e:  # keep running; type only
+                ok = False
+                log.warning("%s failed: %s", name, type(e).__name__)
+        try:
+            if await pheno_fetch.normals_due(engine, lat, lon, datetime.now(UTC)):
+                log.info("phenology normals: %d phases", await pheno_fetch.update_normals(engine, lat, lon))
+        except Exception as e:
+            ok = False
+            log.warning("phenology normals failed: %s", type(e).__name__)
+        await asyncio.sleep(SEASON_S if ok else SEASON_RETRY_S)
 
 
 if __name__ == "__main__":

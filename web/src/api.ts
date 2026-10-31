@@ -85,7 +85,17 @@ export interface TaskIn {
   plant_id: string | null; title: string; category: Category; cut_type: CutType | null; instructions: string; recurrence: Recurrence;
   due_date: string | null; month_from: number | null; month_to: number | null; interval_days: number | null;
   start_date: string | null; urgent: boolean;
+  pheno_phase?: PhaseKey | null; pheno_offset?: number; pheno_window?: number;  // follow the season (yearly only)
 }
+// The phenological clock (DWD): a season starts when its indicator plant gets there.
+export const PHASES = [
+  ['vorfruehling', 'Vorfrühling', 'Haselblüte'], ['erstfruehling', 'Erstfrühling', 'Forsythienblüte'],
+  ['vollfruehling', 'Vollfrühling', 'Apfelblüte'], ['fruehsommer', 'Frühsommer', 'Holunderblüte'],
+  ['hochsommer', 'Hochsommer', 'Lindenblüte'], ['spaetsommer', 'Spätsommer', 'Frühapfel-Reife'],
+  ['fruehherbst', 'Frühherbst', 'Holunderbeeren-Reife'], ['vollherbst', 'Vollherbst', 'Eichel-Reife'],
+  ['spaetherbst', 'Spätherbst', 'Laubfärbung'], ['winter', 'Winter', 'Laubfall'],
+] as const;
+export type PhaseKey = (typeof PHASES)[number][0];
 export interface Product { name: string; kind: string; npk: string | null; dose: string; brands: string[] }
 export interface Task extends TaskIn {
   id: string; plant: { id: string; title: string } | null; source: string; enabled: boolean; notes: LegalNote[];
@@ -113,6 +123,17 @@ export interface Weather {
   days?: WeatherDay[];
   stale?: { sensors: string | null; forecast: string | null };  // null = fresh, ISO time = since then, 'unbekannt'
 }
+export interface SeasonPhase {
+  key: string; name: string; indicator: string; date: string | null; source: 'dwd' | 'garten' | null; reports: number;
+  normal: string | null; expected: string | null;
+}
+export interface Season {
+  current: { key: string; name: string; since: string; source: 'dwd' | 'garten' | 'mittel'; reports: number; delay_days: number | null } | null;
+  phases: SeasonPhase[];
+  next: SeasonPhase | null;
+  gdd: { sum: number; as_of: string; normal: number; days_ahead: number | null } | null;
+  region_ready: boolean;
+}
 export interface Picked { species_id: string; cultivar_id: string | null; latin: string; german: string; form_hint: Form | null }
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
@@ -136,6 +157,9 @@ export const api = {
   resolve: (q: string) => request<{ candidates: Candidate[] }>('GET', `/species/resolve?q=${enc(q)}`),
   weather: () => request<Weather>('GET', '/weather'),
   alerts: () => request<WeatherAlert[]>('GET', '/alerts'),
+  season: () => request<Season>('GET', '/season'),
+  observe: (phase: string, day: string) => request<Season>('POST', '/season/observations', { phase, day }),
+  unobserve: (phase: string) => request<unknown>('DELETE', `/season/observations/${enc(phase)}`),
   askNames: (q: string) => request<{ job_id: string }>('POST', '/species/ai', { q }),
   nameJob: (id: string) => request<NameJob>('GET', `/species/ai/${enc(id)}`),
   pickName: (id: string, index: number) => request<Picked>('POST', `/species/ai/${enc(id)}/pick`, { index }),

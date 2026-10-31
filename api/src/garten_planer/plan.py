@@ -26,7 +26,7 @@ from garten_planer.claude_cli import ClaudeError
 from garten_planer.models import TaskIn
 from garten_planer.schema import care_plans, tasks, todos
 
-PROMPT_VERSION = "plan-1"
+PROMPT_VERSION = "plan-2"  # plan-2: phenological triggers (M7)
 WATERING = re.compile(r"gie(ß|ss)|w(ä|ae)ssern|bew(ä|ae)sser|wassergabe|tr(ä|ae)nken|einschl(ä|ae)mmen", re.IGNORECASE)
 # A cut the AI filed under another category must still meet § 39 (legal rules are code, not prompt).
 CUTTING = re.compile(
@@ -44,6 +44,14 @@ Regeln:
   Sorte unbekannt oder dir unsicher, sag das in "caveats" und setze "confidence" entsprechend.
 - Zeitraum als Monatsfenster (recurrence "yearly", month_from/month_to 1-12) oder als Intervall in Tagen
   (recurrence "interval", z. B. Kontrollen). Klima des Bundeslands berücksichtigen.
+- Wo die Natur den Zeitpunkt besser angibt als der Kalender, zusätzlich "pheno_phase" (Zeigerpflanze des
+  phänologischen Kalenders) und "pheno_offset" (Tage danach, negativ = davor) angeben, z. B. Rosenschnitt zur
+  Forsythienblüte = "erstfruehling", 0; Rasen-/Gehölzdüngung zum Austrieb = "erstfruehling"; nach der Blüte der
+  Sorte = passende Phase mit Versatz. Phasen: vorfruehling (Haselblüte), erstfruehling (Forsythienblüte),
+  vollfruehling (Apfelblüte), fruehsommer (Holunderblüte), hochsommer (Lindenblüte), spaetsommer (Frühapfel-Reife),
+  fruehherbst (Holunderbeeren), vollherbst (Eicheln), spaetherbst (Laubfärbung), winter (Laubfall).
+  "pheno_window" = wie viele Tage ab dann (1-60, sonst 14). Das Monatsfenster bleibt als Rückfallebene trotzdem
+  Pflicht. Nur bei recurrence "yearly".
 - Schnitt: immer "cut_type": "pflege" (schonender Form-/Pflegeschnitt, Zuwachs entfernen) oder "stark" (starker
   Rückschnitt, auf den Stock setzen, Verjüngung, Roden). Starke Schnitte an Hecken, Sträuchern und Gehölzen nur
   1. Oktober bis Ende Februar planen (§ 39 BNatSchG). Andere Kategorien: "cut_type": null.
@@ -82,6 +90,23 @@ class _SchemaTask(BaseModel):
     month_from: int | None
     month_to: int | None
     interval_days: int | None
+    pheno_phase: (
+        Literal[
+            "vorfruehling",
+            "erstfruehling",
+            "vollfruehling",
+            "fruehsommer",
+            "hochsommer",
+            "spaetsommer",
+            "fruehherbst",
+            "vollherbst",
+            "spaetherbst",
+            "winter",
+        ]
+        | None
+    )
+    pheno_offset: int | None
+    pheno_window: int | None
     instructions: S2000
     why: S300
     products: list[_SchemaProduct]
@@ -193,6 +218,23 @@ def _products(raw: Any) -> list[dict[str, Any]]:
     return out[:3]
 
 
+PHASE_KEYS = {"vorfruehling", "erstfruehling", "vollfruehling", "fruehsommer", "hochsommer", "spaetsommer",
+              "fruehherbst", "vollherbst", "spaetherbst", "winter"}  # fmt: skip
+
+
+def _int(v: Any, low: int, high: int, default: int) -> int:
+    return min(high, max(low, v)) if isinstance(v, int) and not isinstance(v, bool) else default
+
+
+def _trigger(t: dict[str, Any]) -> dict[str, Any]:
+    """The phenological trigger, checked on its own: a bad one is dropped, not the task (the
+    month window stays); offset and window are clamped to what TaskIn allows."""
+    if t.get("recurrence") != "yearly" or t.get("pheno_phase") not in PHASE_KEYS:
+        return {}
+    return {"pheno_phase": t["pheno_phase"], "pheno_offset": _int(t.get("pheno_offset"), -60, 120, 0),
+            "pheno_window": _int(t.get("pheno_window"), 1, 60, 14)}  # fmt: skip
+
+
 def sanitize(raw: dict[str, Any]) -> Plan:
     try:
         a = _Answer.model_validate(raw)
@@ -205,6 +247,7 @@ def sanitize(raw: dict[str, Any]) -> Plan:
             dropped += 1  # never watering (F-CP-6), whatever the category
             continue
         fields = {k: t.get(k) for k in ("title", "category", "recurrence", "month_from", "month_to", "interval_days")}
+        fields |= _trigger(t)
         if fields["category"] not in ("schnitt", "ernte") and CUTTING.search(str(fields["title"] or "")):
             fields["category"] = "schnitt"
         cut = t.get("cut_type")

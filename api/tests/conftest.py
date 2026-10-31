@@ -19,11 +19,10 @@ DATABASE_URL = os.environ.get(
     "GP_TEST_DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/garten_planer_test"
 )
 BASE = "http://testserver"
-TABLES = (
-    "name_jobs, plan_jobs, push_messages, push_subs, kv, todos, tasks, weather_alerts, care_plans, plants, "
-    "standorte, cultivars, "
-    "species, settings"
-)
+TABLES = ", ".join([
+    "pheno_events", "pheno_normals", "name_jobs", "plan_jobs", "push_messages", "push_subs", "kv", "todos", "tasks",
+    "weather_alerts", "care_plans", "plants", "standorte", "cultivars", "species", "settings",
+])  # fmt: skip
 
 
 @pytest.fixture(scope="session")

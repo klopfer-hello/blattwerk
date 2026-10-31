@@ -36,12 +36,24 @@ from garten_planer.legal import (
     notes,
 )
 from garten_planer.models import GardenSettings, NoteIn, PostponeIn, Task, TaskIn, known_fields
-from garten_planer.schedule import HORIZON_DAYS, Occurrence, TaskTiming, interval_after, months_in_year, occurrences
+from garten_planer.schedule import (
+    HORIZON_DAYS,
+    Occurrence,
+    TaskTiming,
+    interval_after,
+    months_in_year,
+    occurrences,
+    yearly_span,
+)
 from garten_planer.schema import cultivars, plants, settings, species, tasks, todos
+from garten_planer.season_dates import safe_phase_starts
 
 router = APIRouter(dependencies=[Depends(ready)])
 TZ = ZoneInfo("Europe/Berlin")
-TIMING = ("recurrence", "due_date", "month_from", "month_to", "interval_days", "start_date")
+TIMING = (
+    "recurrence", "due_date", "month_from", "month_to", "interval_days", "start_date", "pheno_phase",
+    "pheno_offset", "pheno_window",
+)  # fmt: skip
 
 
 def now() -> datetime:
@@ -202,11 +214,13 @@ async def materialize(c: AsyncConnection, day: date, task_ids: list[str] | None 
         }
     stamp = datetime.now(UTC)  # record keeping only; due dates come from `day`
     s = await legal_settings(c)
+    starts = await safe_phase_starts(c, day) if any(r.pheno_phase for r in rows) else {}
     values = []
     for r in rows:
         adjust = _adjuster(r, s)  # the legal rules move or shorten windows before anything is stored
         if r.recurrence != "interval":
-            found = occurrences(_timing(r), day, adjust)
+            start = (lambda y, k=r.pheno_phase: starts.get((y, k))) if r.pheno_phase else None
+            found = occurrences(_timing(r), day, adjust, phase_start=start)
         elif r.id in open_now:
             found = []
         else:
@@ -237,6 +251,37 @@ async def materialize(c: AsyncConnection, day: date, task_ids: list[str] | None 
         ]
     if values:
         await c.execute(pg_insert(todos).values(values).on_conflict_do_nothing(constraint="uq_todos_task_period"))
+    triggered = {r.id: r for r in rows if r.pheno_phase and r.recurrence == "yearly"}
+    if triggered and starts:
+        await _follow_phases(c, triggered, starts, s)
+
+
+async def _follow_phases(
+    c: AsyncConnection, triggered: dict[str, Any], starts: dict[tuple[int, str], date], s: LegalSettings
+) -> None:
+    """The phase was reported (or observed) after the to-do was made: open to-dos follow it,
+    also when the new window lies beyond the horizon. Postponed ones stay where the user put
+    them. One query for all, an update only where the dates differ."""
+    rows = await c.execute(
+        select(todos.c.id, todos.c.task_id, todos.c.period, todos.c.due_from, todos.c.due_to).where(
+            todos.c.task_id.in_(list(triggered)), todos.c.status == "open", todos.c.postponed.is_(False)
+        )
+    )
+    for t in rows:
+        r = triggered[t.task_id]
+        if not t.period.isdigit():
+            continue
+        phase: str = r.pheno_phase
+
+        def phase_start(y: int, phase: str = phase) -> date | None:
+            return starts.get((y, phase))
+
+        start, end = yearly_span(_timing(r), int(t.period), phase_start)
+        a, b, why = _adjuster(r, s)(start, end)
+        if (a, b) != (t.due_from, t.due_to):
+            await c.execute(
+                update(todos).where(todos.c.id == t.id).values(due_from=a, due_to=b, legal_adjustment=why or None)
+            )
 
 
 async def _check_plant(c: AsyncConnection, body: TaskIn) -> None:
@@ -513,7 +558,9 @@ async def legal_preview(body: TaskIn, c: Conn, day: Today) -> dict[str, Any]:
     row = (await c.execute(q.where(plants.c.id == body.plant_id))).first() if body.plant_id else None
     r = _Probe(body, row)
     s = await legal_settings(c)
-    upcoming = occurrences(_timing(r), day, _adjuster(r, s), horizon_days=400)  # the next real date, even if far
+    starts = await safe_phase_starts(c, day) if body.pheno_phase else {}
+    start = (lambda y, k=body.pheno_phase: starts.get((y, k))) if body.pheno_phase else None
+    upcoming = occurrences(_timing(r), day, _adjuster(r, s), horizon_days=400, phase_start=start)  # next real date
     nxt = upcoming[0] if upcoming else None
     return {
         "notes": _notes(r, s, months_in_year(_timing(r), day.year)),
