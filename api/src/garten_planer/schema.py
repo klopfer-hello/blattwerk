@@ -12,6 +12,7 @@ from sqlalchemy import (
     Boolean,
     CheckConstraint,
     Column,
+    Date,
     DateTime,
     ForeignKey,
     ForeignKeyConstraint,
@@ -122,4 +123,61 @@ plants = Table(
     ),
     Index("ix_plants_standort_id", "standort_id"),
     Index("ix_plants_archived_at", "archived_at"),
+)
+
+# No watering category: garden plants never get watering tasks (F-CP-6); indoor plants (M11) will add it.
+TASK_CATEGORY = ("schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges")
+TASK_SOURCE = ("manual", "plan", "chat", "alert", "diagnosis")
+
+tasks = Table(
+    "tasks",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("plant_id", Text, ForeignKey("plants.id", ondelete="RESTRICT"), index=True),
+    Column("title", Text, nullable=False),
+    Column("category", Text, nullable=False),
+    Column("instructions", Text, nullable=False),
+    Column("recurrence", Text, nullable=False),
+    Column("due_date", Date),
+    Column("month_from", SmallInteger),
+    Column("month_to", SmallInteger),
+    Column("interval_days", Integer),
+    Column("start_date", Date),
+    Column("urgent", Boolean, nullable=False),
+    Column("source", Text, nullable=False),
+    Column("enabled", Boolean, nullable=False),
+    Column("generation", Integer, nullable=False),  # +1 on every timing change; occurrences keep theirs
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(_in("category", TASK_CATEGORY), name="category"),
+    CheckConstraint(_in("source", TASK_SOURCE), name="source"),
+    CheckConstraint(
+        "(recurrence = 'once' AND due_date IS NOT NULL)"
+        " OR (recurrence = 'yearly' AND month_from BETWEEN 1 AND 12 AND month_to BETWEEN 1 AND 12)"
+        " OR (recurrence = 'interval' AND interval_days > 0)",
+        name="timing",
+    ),
+)
+
+todos = Table(
+    "todos",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("task_id", Text, ForeignKey("tasks.id", ondelete="RESTRICT"), nullable=False, index=True),
+    Column("generation", Integer, nullable=False),
+    Column("period", Text, nullable=False),
+    Column("due_from", Date, nullable=False),
+    Column("due_to", Date, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("done_at", DateTime(timezone=True)),
+    Column("note", Text, nullable=False),
+    Column("postponed", Boolean, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    # makes creating occurrences idempotent; a timing change starts a new generation, so old
+    # occurrences (history) never block new ones and are never renamed or deleted
+    UniqueConstraint("task_id", "generation", "period", name="uq_todos_task_period"),
+    CheckConstraint(_in("status", ("open", "done", "skipped")), name="status"),
+    CheckConstraint("due_to >= due_from", name="window"),
+    CheckConstraint("(status = 'open') = (done_at IS NULL)", name="done_at"),
+    Index("ix_todos_status_due_from", "status", "due_from"),
 )

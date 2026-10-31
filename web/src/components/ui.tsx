@@ -2,6 +2,7 @@
 // router (no dependency; the phone's back button works through the history).
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Category, Todo } from '../mock/data';
+import { CATEGORIES, type Category as ApiCategory, type TaskIn } from '../api';
 
 export function useRoute(): string[] {
   const read = () => (window.location.hash.replace(/^#\/?/, '') || 'heute').split('/');
@@ -119,4 +120,32 @@ export function TodoRow({ todo, done, note, onToggle }: { todo: Todo; done: bool
       </a>
     </div>
   );
+}
+
+// ----- real to-dos (API categories) ------------------------------------------
+
+const TASK_CAT: Record<ApiCategory, string> = {
+  schnitt: 'schnitt', duengen: 'duengen', ernte: 'ernte', pflanzenschutz: 'schutz', winterschutz: 'winter', aussaat: 'aussaat', sonstiges: '',
+};
+export const taskColors = (c: ApiCategory) =>
+  TASK_CAT[c] ? { background: `var(--c-${TASK_CAT[c]})`, color: `var(--c-${TASK_CAT[c]}-ink)` } : { background: 'var(--surface)', color: 'var(--ink-2)' };
+
+export function TaskChip({ category }: { category: ApiCategory }) {
+  return <span className="chip" style={taskColors(category)}>{CATEGORIES[category]}</span>;
+}
+
+const MONTHS_DE = ['Januar', 'Februar', 'März', 'April', 'Mai', 'Juni', 'Juli', 'August', 'September', 'Oktober', 'November', 'Dezember'];
+export const monthName = (m: number) => MONTHS_DE[m - 1];
+export const deDate = (iso: string) => { const [y, m, d] = iso.split('-').map(Number); return `${d}.${m}.${y}`; };
+/** Local (not UTC) calendar date of a timestamp, e.g. ticked at 00:30 → today. */
+export const localDay = (ts: string) => new Date(ts).toLocaleDateString('de-DE');
+/** YYYY-MM-DD of the local date `days` from today (for date inputs). */
+export const localIso = (days = 0) => { const d = new Date(); d.setDate(d.getDate() + days); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+/** "jedes Jahr im November", "jedes Jahr November–Februar", "alle 7 Tage", "einmalig am 5.12.2026" */
+export function timingText(t: Pick<TaskIn, 'recurrence' | 'due_date' | 'month_from' | 'month_to' | 'interval_days'>): string {
+  if (t.recurrence === 'once') return t.due_date ? `einmalig am ${deDate(t.due_date)}` : 'einmalig';
+  if (t.recurrence === 'interval') return t.interval_days === 1 ? 'täglich' : `alle ${t.interval_days} Tage`;
+  if (t.month_from === t.month_to) return `jedes Jahr im ${monthName(t.month_from ?? 1)}`;
+  return `jedes Jahr ${monthName(t.month_from ?? 1)}–${monthName(t.month_to ?? 1)}`;
 }

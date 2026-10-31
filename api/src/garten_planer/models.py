@@ -5,7 +5,7 @@ from collections.abc import Mapping
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field, model_validator
 
 from garten_planer.resolver import fold
 from garten_planer.seed import Growth
@@ -183,3 +183,47 @@ class GardenSettings(Strict):
     preferences: Preferences = Preferences()
     legal: Legal = Legal()
     notifications: Notifications = Notifications()
+
+
+TaskCategory = Literal["schnitt", "duengen", "ernte", "pflanzenschutz", "winterschutz", "aussaat", "sonstiges"]
+Month = Annotated[int, Field(ge=1, le=12)]
+Day = Annotated[date, Field(ge=date(2000, 1, 1), le=date(2100, 12, 31))]  # keeps date maths bounded
+
+
+class TaskIn(Strict):
+    """F-TD/F-CP-7: what should be done, and when. No watering category (F-CP-6)."""
+
+    plant_id: Ref | None = None
+    title: Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=120), AfterValidator(_has_letters)]
+    category: TaskCategory
+    instructions: Annotated[str, Field(max_length=4000)] = ""
+    recurrence: Literal["once", "yearly", "interval"]
+    due_date: Day | None = None
+    month_from: Month | None = None
+    month_to: Month | None = None
+    interval_days: Annotated[int | None, Field(ge=1, le=3650)] = None
+    start_date: Day | None = None
+    urgent: bool = False
+
+    @model_validator(mode="after")
+    def _timing(self) -> "TaskIn":
+        needs = {"once": ("due_date",), "yearly": ("month_from", "month_to"), "interval": ("interval_days",)}
+        missing = [f for f in needs[self.recurrence] if getattr(self, f) is None]
+        if missing:
+            raise ValueError(f"{self.recurrence} needs {', '.join(missing)}")
+        return self
+
+
+class Task(TaskIn):
+    id: str
+    plant: dict[str, str] | None
+    source: str
+    enabled: bool
+
+
+class NoteIn(Strict):
+    note: Annotated[str | None, Field(max_length=1000)] = None
+
+
+class PostponeIn(Strict):
+    to: Day

@@ -4,10 +4,10 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ApiError, FORMS, STANDORT_TYPES, api, type Candidate, type Form, type Light, type Plant, type PlantIn, type Species,
-  type Standort,
+  type Standort, type Task,
 } from '../api';
 import { MONTHS, plantById, standortById } from '../mock/data';
-import { Back, Chip, Icon, Legal } from '../components/ui';
+import { Back, Chip, Icon, Legal, TaskChip, timingText } from '../components/ui';
 
 const LIGHT: Record<Light, { bg: string; fg: string }> = {
   sonnig: { bg: '#FDF1CF', fg: '#6B4A00' }, halbschattig: { bg: '#E9EEF0', fg: '#2F4550' }, schattig: { bg: '#E1E4EA', fg: '#2B3244' },
@@ -119,14 +119,34 @@ export function PlantDetail({ id }: { id: string }) {
         <button className="btn" onClick={toggleArchive} disabled={busy}>{p.archived ? 'Wiederherstellen' : 'Archivieren'}</button>
       </div>
       <div className="tabs" role="tablist">
-        {([['plan', 'Pflegeplan'], ['pests', 'Schädlinge'], ['history', 'Verlauf']] as const).map(([k, label]) => (
+        {([['plan', 'Aufgaben'], ['pests', 'Schädlinge'], ['history', 'Verlauf']] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
-      {tab === 'plan' && <p className="box">Der Pflegeplan für {p.cultivar ? `‘${p.cultivar.name}’` : p.species.german} wird erstellt, sobald die KI angebunden ist (Meilenstein M5).</p>}
+      {tab === 'plan' && <PlantTasks plantId={p.id} />}
       {tab === 'pests' && <p className="box">Typische Schädlinge und Krankheiten kommen mit dem Pflegeplan (M5).</p>}
-      {tab === 'history' && <p className="box">Noch nichts erledigt. Erledigte Aufgaben erscheinen hier (ab M3).</p>}
+      {tab === 'history' && <p className="box">Der Verlauf (erledigte Aufgaben, Diagnosen) kommt in einem späteren Schritt.</p>}
       {p.species.woody && <span className="tiny">Gehölz: starke Rückschnitte nur 1.10.–28.2. (§ 39 BNatSchG).</span>}
+    </div>
+  );
+}
+
+function PlantTasks({ plantId }: { plantId: string }) {
+  const [list, setList] = useState<Task[] | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { api.tasks(plantId).then(setList, () => setFailed(true)); }, [plantId]);
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      {failed && <p className="box" role="alert">Aufgaben konnten nicht geladen werden.</p>}
+      {list?.length === 0 && <p className="box">Noch keine Aufgaben für diese Pflanze. Den KI-Pflegeplan gibt es ab M5 – bis dahin selbst anlegen.</p>}
+      {list?.map((t) => (
+        <a key={t.id} href={`#/aufgabe-bearbeiten/${t.id}`} className="card stack" style={{ gap: 4, textDecoration: 'none', color: 'var(--ink)', opacity: t.enabled ? 1 : 0.6 }}>
+          <span className="row" style={{ gap: 6 }}><TaskChip category={t.category} />{!t.enabled && <span className="tiny">pausiert</span>}</span>
+          <strong>{t.title}</strong>
+          <span className="small muted">{timingText(t)}</span>
+        </a>
+      ))}
+      <a className="btn" href={`#/aufgabe-neu/${plantId}`}>+ Aufgabe für diese Pflanze</a>
     </div>
   );
 }

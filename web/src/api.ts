@@ -73,6 +73,27 @@ export interface Candidate {
 }
 export interface Species { id: string; latin: string; german: string[]; growth: string; woody: boolean; cultivars: { id: string; name: string }[] }
 
+export const CATEGORIES = {
+  schnitt: 'Schnitt', duengen: 'Düngen', ernte: 'Ernte', pflanzenschutz: 'Pflanzenschutz',
+  winterschutz: 'Winterschutz', aussaat: 'Aussaat', sonstiges: 'Sonstiges',
+} as const;
+export type Category = keyof typeof CATEGORIES;
+export type Recurrence = 'once' | 'yearly' | 'interval';
+export interface TaskIn {
+  plant_id: string | null; title: string; category: Category; instructions: string; recurrence: Recurrence;
+  due_date: string | null; month_from: number | null; month_to: number | null; interval_days: number | null;
+  start_date: string | null; urgent: boolean;
+}
+export interface Task extends TaskIn { id: string; plant: { id: string; title: string } | null; source: string; enabled: boolean }
+export interface Todo {
+  id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
+  note: string; done_at: string | null;
+  task: { id: string; title: string; category: Category; urgent: boolean; instructions: string; recurrence: Recurrence };
+  plant: { id: string; title: string } | null;
+}
+export interface Heute { year: number; month: number; open: Todo[]; done: Todo[] }
+export interface CalendarEntry { task_id: string; title: string; category: Category; urgent: boolean; plant: { id: string; title: string } | null }
+
 const enc = encodeURIComponent;
 
 export const api = {
@@ -91,4 +112,16 @@ export const api = {
   updatePlant: (id: string, p: PlantIn) => request<Plant>('PUT', `/plants/${enc(id)}`, p),
   archivePlant: (id: string) => request<Plant>('POST', `/plants/${enc(id)}/archive`),
   restorePlant: (id: string) => request<Plant>('POST', `/plants/${enc(id)}/restore`),
+  tasks: (plantId?: string) => request<Task[]>('GET', `/tasks${plantId ? `?plant_id=${enc(plantId)}` : ''}`),
+  task: (id: string) => request<Task>('GET', `/tasks/${enc(id)}`),
+  createTask: (t: TaskIn) => request<Task>('POST', '/tasks', t),
+  updateTask: (id: string, t: TaskIn) => request<Task>('PUT', `/tasks/${enc(id)}`, t),
+  setTaskEnabled: (id: string, on: boolean) => request<Task>('POST', `/tasks/${enc(id)}/${on ? 'enable' : 'disable'}`),
+  heute: () => request<Heute>('GET', '/todos/heute'),
+  todo: (id: string) => request<Todo>('GET', `/todos/${enc(id)}`),
+  done: (id: string, note?: string) => request<Todo>('POST', `/todos/${enc(id)}/done`, note === undefined ? {} : { note }),
+  skip: (id: string, note?: string) => request<Todo>('POST', `/todos/${enc(id)}/skip`, note === undefined ? {} : { note }),
+  undo: (id: string) => request<Todo>('POST', `/todos/${enc(id)}/undo`),
+  postpone: (id: string, to: string) => request<Todo>('POST', `/todos/${enc(id)}/postpone`, { to }),
+  calendar: (year: number) => request<{ year: number; months: CalendarEntry[][] }>('GET', `/calendar?year=${year}`),
 };
