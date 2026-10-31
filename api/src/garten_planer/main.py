@@ -20,6 +20,7 @@ from garten_planer.routes import (
     chat,
     health,
     names,
+    photos,
     plans,
     plants,
     push,
@@ -88,6 +89,7 @@ def create_app(config: Config | None = None) -> FastAPI:
             body["fields"] = exc.fields
         return JSONResponse(body, status_code=exc.status)
 
-    for module in (health, settings, standorte, names, species, plants, todos, push, plans, weather, season, chat):
+    routes = (health, settings, standorte, names, species, plants, todos, push, plans, weather, season, chat, photos)
+    for module in routes:
         app.include_router(module.router, prefix="/api")
     return app

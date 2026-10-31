@@ -71,7 +71,7 @@ def build() -> Any:
     async def jahreszeit() -> dict[str, Any]:
         return await _read(gt.jahreszeit, _today())
 
-    @server.tool(description="Erledigte und übersprungene Aufgaben einer Pflanze (neueste zuerst, mit Notizen).")
+    @server.tool(description="Erledigte Aufgaben und gespeicherte Diagnosen einer Pflanze (neueste zuerst).")
     async def verlauf(pflanze_id: str) -> dict[str, Any]:
         return await _read(gt.verlauf, pflanze_id)
 
@@ -107,6 +107,14 @@ def build() -> Any:
     @server.tool(description="Eine Notiz zu einer Pflanze VORSCHLAGEN (der Nutzer bestätigt in der App).")
     async def notiz_vorschlagen(pflanze_id: str, text: str) -> dict[str, Any]:
         return await _write(gt.notiz_vorschlagen, message_id, pflanze_id, text)
+
+    @server.tool(description=(
+        "Eine Diagnose nach Fotos VORSCHLAGEN (der Nutzer speichert sie in der App im Verlauf der Pflanze). "
+        "befund: kurz, z. B. 'Echter Mehltau'; sicherheit: 'ziemlich sicher' oder 'sicher'; ursache: kurz. "
+        "Nur wenn du dir wirklich ziemlich sicher bist, sonst nachfragen (anderes Foto, Blattunterseite)."
+    ))  # fmt: skip
+    async def diagnose_vorschlagen(pflanze_id: str, befund: str, sicherheit: str, ursache: str = "") -> dict[str, Any]:
+        return await _write(gt.diagnose_vorschlagen, message_id, pflanze_id, befund, sicherheit, ursache)
 
     return server
 

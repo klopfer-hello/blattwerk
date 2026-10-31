@@ -16,7 +16,7 @@ from garten_planer.db import Conn
 from garten_planer.errors import invalid, not_found
 from garten_planer.models import Plant, PlantIn
 from garten_planer.routes.plans import queue_plan
-from garten_planer.schema import cultivars, plants, species, standorte
+from garten_planer.schema import cultivars, diagnoses, plants, species, standorte, tasks, todos
 
 router = APIRouter(dependencies=[Depends(ready)])
 
@@ -132,3 +132,28 @@ async def archive_plant(pid: str, c: Conn) -> Plant:
 @router.post("/plants/{pid}/restore")
 async def restore_plant(pid: str, c: Conn) -> Plant:
     return await _set_archived(c, pid, False)
+
+
+@router.get("/plants/{pid}/history")
+async def plant_history(pid: str, c: Conn) -> list[dict[str, Any]]:
+    """Done and skipped to-dos plus saved diagnoses, newest first (the plant's Verlauf tab)."""
+    await _one(c, pid)
+    done = await c.execute(
+        select(todos.c.id, todos.c.status, todos.c.done_at, todos.c.note, tasks.c.title, tasks.c.category)
+        .join(tasks, tasks.c.id == todos.c.task_id)
+        .where(tasks.c.plant_id == pid, todos.c.status != "open")
+        .order_by(todos.c.done_at.desc()).limit(100)
+    )  # fmt: skip
+    found = await c.execute(select(diagnoses).where(diagnoses.c.plant_id == pid)
+                            .order_by(diagnoses.c.created_at.desc()).limit(100))  # fmt: skip
+    items = [
+        {"kind": "aufgabe", "id": r.id, "at": r.done_at, "title": r.title, "category": r.category,
+         "status": r.status, "note": r.note}
+        for r in done
+    ] + [
+        {"kind": "diagnose", "id": d.id, "at": d.created_at, "title": d.title,
+         "confidence": d.confidence, "cause": d.cause, "photos": d.photo_ids}
+        for d in found
+    ]  # fmt: skip
+    items.sort(key=lambda i: i["at"], reverse=True)  # datetimes, not strings: offsets differ across DST
+    return [i | {"at": i["at"].isoformat()} for i in items]

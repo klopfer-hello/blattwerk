@@ -5,8 +5,9 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   ApiError, FORMS, GROWTH, STANDORT_TYPES, api, type AiCandidate, type Candidate, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
-  type PlanState, type Standort, type Task,
+  type HistoryItem, type PlanState, type Standort, type Task,
 } from '../api';
+import { photoUrl } from '../photos';
 import { MONTHS, plantById, standortById } from '../mock/data';
 import { Back, Chip, Icon, Legal, TaskChip, timingText, Waiting } from '../components/ui';
 
@@ -153,6 +154,11 @@ export function PlantDetail({ id }: { id: string }) {
         <a className="btn" href={`#/pflanze/${p.id}/bearbeiten`}>Bearbeiten</a>
         <button className="btn" onClick={toggleArchive} disabled={busy}>{p.archived ? 'Wiederherstellen' : 'Archivieren'}</button>
       </div>
+      {!p.archived && (
+        <a className="btn" href={`#/fragen-pflanze/${p.id}`} style={{ borderColor: 'var(--urgent)', color: 'var(--urgent)', fontWeight: 700 }}>
+          <Icon name="camera" size={20} />Pflanze krank? Foto zeigen
+        </a>
+      )}
       <div className="tabs" role="tablist">
         {([['plan', 'Aufgaben'], ['pests', 'Schädlinge'], ['history', 'Verlauf']] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>
@@ -169,7 +175,7 @@ export function PlantDetail({ id }: { id: string }) {
           </div>
         )), <span key="note" className="tiny">Vorschläge der KI. Pflanzenschutzmittel nur mit Zulassung für Haus- und Kleingarten verwenden – Etikett und Anwendungsbestimmungen beachten.</span>]
         : <p className="box">Typische Schädlinge und Krankheiten stehen hier, sobald es einen Pflegeplan gibt.</p>)}
-      {tab === 'history' && <p className="box">Der Verlauf (erledigte Aufgaben, Diagnosen) kommt in einem späteren Schritt.</p>}
+      {tab === 'history' && <PlantHistory plantId={p.id} />}
       {p.species.woody && <span className="tiny">Gehölz: starke Rückschnitte nur 1.10.–28.2. (§ 39 BNatSchG).</span>}
       <SpeciesTraitsBox id={p.species.id} onSaved={() => api.plant(id).then(setP, () => undefined)} />
     </div>
@@ -605,6 +611,49 @@ function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void 
       <div className="field"><label htmlFor="sno">Notizen</label><input id="sno" className="input" maxLength={500} value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} /></div>
       {err && <span className="small" style={{ color: 'var(--urgent)' }}>{err}</span>}
       <div className="grid2"><button className="btn" onClick={onDone}>Abbrechen</button><button className="btn" style={{ background: 'var(--green)', color: 'var(--green-ink)', border: 0, fontWeight: 700 }} onClick={save} disabled={busy}>{busy ? 'Speichert …' : 'Speichern'}</button></div>
+    </div>
+  );
+}
+
+// ----- history: done/skipped to-dos and saved diagnoses (M9) -----------------
+
+function PlantHistory({ plantId }: { plantId: string }) {
+  const [items, setItems] = useState<HistoryItem[] | null>(null);
+  const [error, setError] = useState('');
+  useEffect(() => { api.history(plantId).then(setItems, (e) => setError(fail(e).message)); }, [plantId]);
+  if (error) return <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error}</p>;
+  if (!items) return <p className="muted"><Waiting /></p>;
+  if (!items.length) return <p className="box">Noch nichts erledigt. Hier stehen später erledigte Aufgaben und gespeicherte Diagnosen.</p>;
+  const day = (iso: string) => new Date(iso).toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric', year: '2-digit' });
+  return (
+    <div className="stack" style={{ gap: 4 }}>
+      {items.map((h) => (
+        <div key={h.kind + h.id} className="planrow" style={{ gridTemplateColumns: '72px minmax(0, 1fr)' }}>
+          <span className="small muted">{day(h.at)}</span>
+          {h.kind === 'diagnose' ? (
+            <span className="stack" style={{ gap: 4 }}>
+              <TaskChip category="pflanzenschutz" />
+              <strong>Diagnose: {h.title}</strong>
+              <span className="small muted">{h.confidence}{h.cause ? ` · ${h.cause}` : ''}</span>
+              {h.photos.length > 0 && (
+                <span className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
+                  {h.photos.map((id, i) => (
+                    <a key={id} href={photoUrl(id)} target="_blank" rel="noreferrer" aria-label={`Foto ${i + 1} groß ansehen`}>
+                      <img src={photoUrl(id)} alt={`Foto ${i + 1} der Diagnose`} width={80} height={60} style={{ borderRadius: 8, objectFit: 'cover', display: 'block' }} />
+                    </a>
+                  ))}
+                </span>
+              )}
+            </span>
+          ) : (
+            <span className="stack" style={{ gap: 2 }}>
+              <strong>{h.status === 'done' ? '✓' : '–'} {h.title}{h.status === 'skipped' ? ' (übersprungen)' : ''}</strong>
+              {h.note && <span className="small muted">„{h.note}“</span>}
+            </span>
+          )}
+        </div>
+      ))}
+      <span className="tiny">Die KI sieht den Verlauf bei späteren Fragen zu dieser Pflanze.</span>
     </div>
   );
 }

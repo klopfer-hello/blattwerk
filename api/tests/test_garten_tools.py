@@ -107,8 +107,8 @@ def test_mcp_server_lists_exactly_the_garden_tools() -> None:
 
     tools = asyncio.run(build().list_tools())
     names = sorted(t.name for t in tools)
-    assert names == ["aufgabe_vorschlagen", "aufgaben", "garten_ueberblick", "jahreszeit", "notiz_vorschlagen",
-                     "pflanze", "verlauf", "wetter"]  # fmt: skip
+    assert names == ["aufgabe_vorschlagen", "aufgaben", "diagnose_vorschlagen", "garten_ueberblick", "jahreszeit",
+                     "notiz_vorschlagen", "pflanze", "verlauf", "wetter"]  # fmt: skip
     assert not any("loesch" in n or "delete" in n for n in names)
 
 

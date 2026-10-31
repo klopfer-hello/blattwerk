@@ -136,9 +136,13 @@ export interface Season {
   region_ready: boolean;
 }
 export interface ChatSummary { id: string; title: string; updated_at: string }
-export interface ChatAction { id: string; kind: 'aufgabe' | 'notiz'; payload: Record<string, unknown>; status: 'proposed' | 'done' | 'rejected'; plant: string | null }
-export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; actions: ChatAction[] }
-export interface ChatFull { id: string; title: string; messages: ChatMessage[] }
+export interface ChatAction { id: string; kind: 'aufgabe' | 'notiz' | 'diagnose'; payload: Record<string, unknown>; status: 'proposed' | 'done' | 'rejected'; plant: string | null }
+export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; photos: string[]; actions: ChatAction[] }
+export interface ChatFull { id: string; title: string; plant: { id: string; name: string } | null; messages: ChatMessage[] }
+export interface Ask { photo_ids?: string[]; plant_id?: string }
+export type HistoryItem =
+  | { kind: 'aufgabe'; id: string; at: string; title: string; category: Category; status: 'done' | 'skipped'; note: string }
+  | { kind: 'diagnose'; id: string; at: string; title: string; confidence: string; cause: string; photos: string[] };
 export interface Picked { species_id: string; cultivar_id: string | null; latin: string; german: string; form_hint: Form | null }
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
@@ -167,8 +171,8 @@ export const api = {
   unobserve: (phase: string) => request<unknown>('DELETE', `/season/observations/${enc(phase)}`),
   chats: () => request<ChatSummary[]>('GET', '/chats'),
   chat: (id: string) => request<ChatFull>('GET', `/chats/${enc(id)}`),
-  newChat: (text: string) => request<{ chat_id: string; message_id: string }>('POST', '/chats', { text }),
-  ask: (id: string, text: string) => request<{ chat_id: string; message_id: string }>('POST', `/chats/${enc(id)}/messages`, { text }),
+  newChat: (text: string, extra: Ask = {}) => request<{ chat_id: string; message_id: string }>('POST', '/chats', { text, ...extra }),
+  ask: (id: string, text: string, extra: Ask = {}) => request<{ chat_id: string; message_id: string }>('POST', `/chats/${enc(id)}/messages`, { text, ...extra }),
   deleteChat: (id: string) => request<unknown>('DELETE', `/chats/${enc(id)}`),
   confirmAction: (id: string) => request<unknown>('POST', `/chat-actions/${enc(id)}/confirm`),
   rejectAction: (id: string) => request<unknown>('POST', `/chat-actions/${enc(id)}/reject`),
@@ -184,6 +188,7 @@ export const api = {
   updatePlant: (id: string, p: PlantIn) => request<Plant>('PUT', `/plants/${enc(id)}`, p),
   archivePlant: (id: string) => request<Plant>('POST', `/plants/${enc(id)}/archive`),
   restorePlant: (id: string) => request<Plant>('POST', `/plants/${enc(id)}/restore`),
+  history: (id: string) => request<HistoryItem[]>('GET', `/plants/${enc(id)}/history`),
   tasks: (plantId?: string) => request<Task[]>('GET', `/tasks${plantId ? `?plant_id=${enc(plantId)}` : ''}`),
   task: (id: string) => request<Task>('GET', `/tasks/${enc(id)}`),
   plan: (plantId: string) => request<PlanState>('GET', `/plants/${enc(plantId)}/plan`),

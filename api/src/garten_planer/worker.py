@@ -47,6 +47,7 @@ from garten_planer.plan import (
     build_prompt,
     sanitize,
 )
+from garten_planer.routes.photos import purge_photos
 from garten_planer.routes.todos import TZ, _active, _plant_join, materialize
 from garten_planer.schema import (
     chat_messages,
@@ -54,6 +55,7 @@ from garten_planer.schema import (
     cultivars,
     kv,
     name_jobs,
+    photos,
     plan_jobs,
     plants,
     push_messages,
@@ -282,6 +284,7 @@ async def main() -> None:
                 log.info("digest with %d to-dos queued", count)
             if sender is not None and (sent := await send_pending(engine, sender)):
                 log.info("%d push messages sent", sent)
+            await purge_photos(engine)
         except Exception as e:  # keep running; type only (messages may contain SQL parameters)
             log.warning("job failed: %s", type(e).__name__)
         await asyncio.to_thread(ALIVE.touch)
@@ -425,7 +428,7 @@ async def run_name_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
         finished += 1
 
 
-Streamer = Callable[[str, str, str], AsyncGenerator[dict[str, Any]]]
+Streamer = Callable[[str, str, str, list[bytes]], AsyncGenerator[dict[str, Any]]]
 TURN = "\n\n\u2063"  # between assistant turns (text before a tool call is narration)
 FLUSH_S = 0.3  # how often a growing answer is written (the web polls it)
 
@@ -457,17 +460,38 @@ async def run_chat_jobs(engine: AsyncEngine, stream: Streamer, daily_limit: int)
             )
             earlier = (
                 await c.execute(
-                    select(chat_messages.c.role, chat_messages.c.text)
+                    select(chat_messages.c.id, chat_messages.c.role, chat_messages.c.text, chat_messages.c.photos)
                     .where(chat_messages.c.chat_id == job.chat_id, chat_messages.c.created_at < job.created_at,
                            chat_messages.c.status == "done")
                     .order_by(chat_messages.c.created_at)
                 )
             ).all()  # fmt: skip
-        history = [(r.role, r.text) for r in earlier]
-        question = history.pop()[1] if history and history[-1][0] == "user" else ""
+            asked = earlier[-1] if earlier and earlier[-1].role == "user" else None
+            # the newest photos in the visible history go along (a text answer to "Blattunterseite?" keeps
+            # them); older photos only as "[Foto]" in the text (cost)
+            shown = next((r for r in reversed(earlier[-chat.HISTORY - 1 :]) if r.role == "user" and r.photos), None)
+            images: list[bytes] = []
+            if shown is not None:
+                got = {r.id: bytes(r.data) for r in await c.execute(
+                    select(photos.c.id, photos.c.data).where(photos.c.id.in_(shown.photos)))}  # fmt: skip
+                images = [got[i] for i in shown.photos if i in got]
+            about = (
+                await c.execute(
+                    select(plants.c.id, plants.c.nickname, species.c.german)
+                    .join(chats, chats.c.plant_id == plants.c.id)
+                    .join(species, species.c.id == plants.c.species_id)
+                    .where(chats.c.id == job.chat_id)
+                )
+            ).first()
+        history = [(r.role, r.text + chat.photo_mark(len(r.photos))) for r in earlier]
+        question = history.pop()[1] if asked is not None else ""
+        plant = None
+        if about is not None:
+            plant = (about.nickname or (about.german[0] if about.german else "Pflanze"), about.id)
         text, last_flush, values = "", 0.0, {}
         try:
-            async with contextlib.aclosing(stream(chat.build_prompt(history, question), chat.SYSTEM, job.id)) as events:
+            prompt = chat.build_prompt(history, question, plant)
+            async with contextlib.aclosing(stream(prompt, chat.SYSTEM, job.id, images)) as events:
                 async for event in events:
                     parsed = chat.parse_event(event)
                     if parsed is None:
@@ -562,7 +586,7 @@ async def ai_loops(engine: AsyncEngine, cfg: Config) -> None:
             await asyncio.sleep(PLAN_LOOP_S)
 
     def streamer() -> Streamer:
-        def run(prompt: str, system: str, message_id: str) -> AsyncGenerator[dict[str, Any]]:
+        def run(prompt: str, system: str, message_id: str, images: list[bytes]) -> AsyncGenerator[dict[str, Any]]:
             env = {  # mcp_url raises a German ClaudeError when the role's password is missing: that answer fails
                 "GP_DATABASE_URL": mcp_url(cfg),
                 "GP_INFLUX_URL": cfg.influx_url,
@@ -572,7 +596,7 @@ async def ai_loops(engine: AsyncEngine, cfg: Config) -> None:
             }
             server = {"command": sys.executable, "args": ["-m", "garten_planer.mcp_garten"], "env": env}
             return run_stream(cli, prompt, system, {"garten": server}, "mcp__garten__*", model=cfg.plan_model,
-                              budget_usd=cfg.chat_budget_usd)  # fmt: skip
+                              budget_usd=cfg.chat_budget_usd, images=images)  # fmt: skip
 
         return run
 

@@ -30,7 +30,7 @@ RESULT = {"type": "result", "is_error": False, "total_cost_usd": 0.02, "modelUsa
 
 
 def fake(events: list[dict[str, Any]] | Exception, seen: list[str] | None = None, before_fail: int = 0) -> Any:
-    async def stream(prompt: str, system: str, message_id: str) -> AsyncGenerator[dict[str, Any]]:
+    async def stream(prompt: str, system: str, message_id: str, images: list[bytes]) -> AsyncGenerator[dict[str, Any]]:
         if seen is not None:
             seen.append(prompt)
         if isinstance(events, Exception):

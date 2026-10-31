@@ -22,7 +22,7 @@ from garten_planer.garten_tools import active_plant, check_task
 from garten_planer.jobs import CHAT_QUEUED_FOR, CHAT_STALE, fail_stale
 from garten_planer.models import Strict, _strip
 from garten_planer.routes.todos import TZ, create_task
-from garten_planer.schema import chat_actions, chat_messages, chats, plants, species, tasks
+from garten_planer.schema import chat_actions, chat_messages, chats, diagnoses, photos, plants, species, tasks
 
 router = APIRouter()
 STREAM_POLL_S = 0.4
@@ -30,13 +30,36 @@ STREAM_MAX_S = 6 * 60
 PING_S = 15
 NOTES_MAX = 1000
 PROPOSAL_DAYS = timedelta(days=7)  # an old card does not create a task in the past
+MAX_PHOTOS = 3
 
 
 class Question(Strict):
     text: Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=MAX_QUESTION)]
+    photo_ids: list[Annotated[str, Field(max_length=64)]] = Field(default=[], max_length=MAX_PHOTOS)
+    plant_id: str | None = None  # "Pflanze krank?": the question is about this plant (kept for the chat)
 
 
-async def _ask(c: AsyncConnection, chat_id: str, question: str, limit: int) -> str:
+async def _plant_context(c: AsyncConnection, chat_id: str, plant_id: str | None) -> None:
+    if plant_id is None:
+        return
+    if not await active_plant(c, plant_id):
+        raise ApiError(422, "unknown plant", {"plant_id": "unknown"})
+    await c.execute(update(chats).where(chats.c.id == chat_id).values(plant_id=plant_id))
+
+
+async def _claim_photos(c: AsyncConnection, message_id: str, ids: list[str]) -> None:
+    """Fresh uploads only: each photo belongs to exactly one question."""
+    if not ids:
+        return
+    claimed = await c.execute(
+        update(photos).where(photos.c.id.in_(ids), photos.c.message_id.is_(None)).values(message_id=message_id)
+    )
+    if len(set(ids)) != len(ids) or claimed.rowcount != len(ids):
+        raise ApiError(422, "unknown or already used photo", {"photo_ids": "invalid"})
+
+
+async def _ask(c: AsyncConnection, chat_id: str, question: str, limit: int, photo_ids: list[str] | None = None) -> str:
+    photo_ids = photo_ids or []
     await fail_stale(c, chat_messages, CHAT_STALE, queued_for=CHAT_QUEUED_FOR)
     midnight = datetime.combine(datetime.now(TZ).date(), datetime.min.time(), TZ)
     asked = await c.execute(
@@ -47,8 +70,10 @@ async def _ask(c: AsyncConnection, chat_id: str, question: str, limit: int) -> s
     if asked.scalar_one() >= limit:
         raise ApiError(429, "daily chat limit reached")
     stamp = datetime.now(UTC)
-    await c.execute(chat_messages.insert().values(id=uuid.uuid4().hex, chat_id=chat_id, role="user", text=question,
-                                                  status="done", created_at=stamp))  # fmt: skip
+    qid = uuid.uuid4().hex
+    await c.execute(chat_messages.insert().values(id=qid, chat_id=chat_id, role="user", text=question,
+                                                  photos=photo_ids, status="done", created_at=stamp))  # fmt: skip
+    await _claim_photos(c, qid, photo_ids)
     mid = uuid.uuid4().hex
     await c.execute(chat_messages.insert().values(id=mid, chat_id=chat_id, role="assistant", text="", status="queued",
                                                   created_at=stamp + timedelta(microseconds=1)))  # fmt: skip
@@ -68,7 +93,8 @@ async def new_chat(body: Question, c: Conn, request: Request) -> dict[str, str]:
     stamp = datetime.now(UTC)
     title = body.text if len(body.text) <= 60 else body.text[:57].rstrip() + " …"
     await c.execute(chats.insert().values(id=cid, title=title, created_at=stamp, updated_at=stamp))
-    mid = await _ask(c, cid, body.text, request.app.state.config.chat_daily_limit)
+    await _plant_context(c, cid, body.plant_id)
+    mid = await _ask(c, cid, body.text, request.app.state.config.chat_daily_limit, body.photo_ids)
     return {"chat_id": cid, "message_id": mid}
 
 
@@ -83,7 +109,9 @@ async def add_message(cid: str, body: Question, c: Conn, request: Request) -> di
     )  # fmt: skip
     if busy.first() is not None:
         raise ApiError(409, "the previous answer is still being written")
-    return {"chat_id": cid, "message_id": await _ask(c, cid, body.text, request.app.state.config.chat_daily_limit)}
+    await _plant_context(c, cid, body.plant_id)
+    mid = await _ask(c, cid, body.text, request.app.state.config.chat_daily_limit, body.photo_ids)
+    return {"chat_id": cid, "message_id": mid}
 
 
 @router.get("/chats/{cid}")
@@ -98,10 +126,17 @@ async def read_chat(cid: str, c: Conn) -> dict[str, Any]:
                             .outerjoin(species, species.c.id == plants.c.species_id)
                             .where(chat_actions.c.message_id.in_([m.id for m in msgs]))
                             .order_by(chat_actions.c.created_at))).all()  # fmt: skip
+    plant = None
+    if chat.plant_id:
+        p = (await c.execute(select(plants.c.id, plants.c.nickname, species.c.german)
+                             .join(species, species.c.id == plants.c.species_id)
+                             .where(plants.c.id == chat.plant_id))).first()  # fmt: skip
+        if p is not None:
+            plant = {"id": p.id, "name": p.nickname or (p.german[0] if p.german else p.id)}
     return {
-        "id": chat.id, "title": chat.title,
+        "id": chat.id, "title": chat.title, "plant": plant,
         "messages": [
-            {"id": m.id, "role": m.role, "text": m.text, "status": m.status, "error": m.error,
+            {"id": m.id, "role": m.role, "text": m.text, "status": m.status, "error": m.error, "photos": m.photos,
              "actions": [{"id": a.id, "kind": a.kind, "payload": a.payload, "status": a.status,
                           "plant": a.nickname or (a.german[0] if a.german else None)}
                          for a in acts if a.message_id == m.id]}
@@ -165,6 +200,20 @@ async def _decide(c: AsyncConnection, aid: str) -> Any:
     return a
 
 
+async def _question_photos(c: AsyncConnection, answer_id: str) -> list[str]:
+    """The photos Claude saw for an answer: the newest user message before it that has photos
+    (a text-only follow-up to "Blattunterseite?" keeps the earlier ones, as in the worker)."""
+    answer = (await c.execute(select(chat_messages).where(chat_messages.c.id == answer_id))).one()
+    q = await c.execute(
+        select(chat_messages.c.photos)
+        .where(chat_messages.c.chat_id == answer.chat_id, chat_messages.c.role == "user",
+               chat_messages.c.created_at < answer.created_at,
+               func.jsonb_array_length(chat_messages.c.photos) > 0)
+        .order_by(chat_messages.c.created_at.desc()).limit(1)
+    )  # fmt: skip
+    return list(q.scalar() or [])
+
+
 @router.post("/chat-actions/{aid}/confirm")
 async def confirm(aid: str, c: Conn) -> dict[str, Any]:
     a = await _decide(c, aid)
@@ -179,6 +228,13 @@ async def confirm(aid: str, c: Conn) -> dict[str, Any]:
         task = await create_task(checked, c, today)
         await c.execute(update(tasks).where(tasks.c.id == task.id).values(source="chat"))
         result = task.id
+    elif a.kind == "diagnose":
+        result = uuid.uuid4().hex
+        await c.execute(diagnoses.insert().values(
+            id=result, plant_id=plant_id, title=a.payload["title"], confidence=a.payload["confidence"],
+            cause=a.payload["cause"], photo_ids=await _question_photos(c, a.message_id), message_id=a.message_id,
+            created_at=datetime.now(UTC),
+        ))  # fmt: skip
     else:
         row = (
             await c.execute(select(plants.c.notes).where(plants.c.id == a.payload["plant_id"]).with_for_update())

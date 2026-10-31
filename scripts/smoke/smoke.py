@@ -5,9 +5,11 @@ and horizontal scrolling; reports touch targets under 44 px. Screenshots go to .
 
 import json
 import os
+import struct
 import sys
 import time
 import urllib.request
+import zlib
 from datetime import date
 from pathlib import Path
 
@@ -82,7 +84,7 @@ def screens(ids: dict[str, str]) -> dict[str, tuple[str, str]]:
         "fragen": ("#/fragen", "Fragen"), "mehr": ("#/mehr", "Mehr"), "wetter": ("#/wetter", "Wetter"),
         "einstellungen": ("#/einstellungen", "Einstellungen"), "standorte": ("#/standorte", "Standorte"),
         "warnung": ("#/warnung", "Wetterwarnungen"),
-        "doktor-vorschau": ("#/vorschau-doktor", "Pflanze krank?"),
+        "pflanze-krank": (f"#/fragen-pflanze/{ids['plant']}", "Pflanze krank?"),
     }  # fmt: skip
 
 
@@ -102,6 +104,27 @@ def check(page: Page, name: str, size: str, must: str, problems: list[str], note
             .map(([e, r]) => (e.innerText || e.getAttribute('aria-label') || e.tagName).trim().slice(0, 30) + ' ' + Math.round(r.height) + 'px')""")
         notes += [f"{size}/{name}: small target {t}" for t in small]
     page.screenshot(path=str(OUT / f"{size}-{name}.png"), full_page=True)
+
+
+def noise_png(w: int = 1200, h: int = 900) -> bytes:
+    """Random pixels: the shrunk JPEG stays large (hundreds of KB), like a detailed leaf photo."""
+    raw = b"".join(b"\x00" + os.urandom(w * 3) for _ in range(h))
+
+    def chunk(kind: bytes, data: bytes) -> bytes:
+        return struct.pack(">I", len(data)) + kind + data + struct.pack(">I", zlib.crc32(kind + data))
+
+    head = struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0)
+    return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", head) + chunk(b"IDAT", zlib.compress(raw, 1)) + chunk(b"IEND", b"")
+
+
+def photo(page: Page, size: str, problems: list[str]) -> None:
+    """The camera button's file input: shrink in the browser, upload through nginx, thumbnail shown."""
+    page.set_input_files("input[type=file]", files=[{"name": "blatt.png", "mimeType": "image/png", "buffer": noise_png()}])
+    try:
+        page.wait_for_selector("img[alt='Foto 1']", timeout=15000)
+    except Exception:
+        problems.append(f"{size}/pflanze-krank: photo upload shows no thumbnail")
+    page.screenshot(path=str(OUT / f"{size}-pflanze-krank-foto.png"), full_page=True)
 
 
 def main() -> None:
@@ -134,6 +157,8 @@ def main() -> None:
                 current["name"] = name
                 page.goto(f"{BASE}/{path}")
                 check(page, name, size, must, problems, notes)
+                if name == "pflanze-krank":
+                    photo(page, size, problems)
             ctx.close()
         browser.close()
     for n in sorted(set(notes)):

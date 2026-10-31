@@ -24,6 +24,7 @@ from garten_planer.schema import (
     care_plans,
     chat_actions,
     cultivars,
+    diagnoses,
     plants,
     settings,
     species,
@@ -34,6 +35,8 @@ from garten_planer.schema import (
 from garten_planer.season_dates import season_core
 
 MAX_NOTE = 500
+MAX_FINDING = 120
+CONFIDENCE = ("ziemlich sicher", "sicher")  # "unsicher" is no diagnosis: ask for another photo
 MAX_PROPOSALS = 5  # per answer: a confused or manipulated answer cannot flood the screen
 
 
@@ -146,12 +149,19 @@ async def verlauf(c: AsyncConnection, pflanze_id: str) -> dict[str, Any]:
         .order_by(todos.c.done_at.desc())
         .limit(30)
     )
+    found = await c.execute(
+        select(diagnoses).where(diagnoses.c.plant_id == pflanze_id).order_by(diagnoses.c.created_at.desc()).limit(10)
+    )
     return {
         "eintraege": [
             {"titel": r.title, "status": r.status, "am": r.done_at.date().isoformat() if r.done_at else None,
              }
             for r in rows
-        ]
+        ],
+        "diagnosen": [
+            {"befund": d.title, "sicherheit": d.confidence, "ursache": d.cause, "am": d.created_at.date().isoformat()}
+            for d in found
+        ],
     }  # fmt: skip
 
 
@@ -222,3 +232,18 @@ async def notiz_vorschlagen(c: AsyncConnection, message_id: str, pflanze_id: str
     if not await active_plant(c, pflanze_id):
         return {"fehler": "Pflanze nicht gefunden"}
     return await _propose(c, message_id, "notiz", {"plant_id": pflanze_id, "text": text})
+
+
+async def diagnose_vorschlagen(
+    c: AsyncConnection, message_id: str, pflanze_id: str, befund: str, sicherheit: str, ursache: str
+) -> dict[str, Any]:
+    """A diagnosis to save in the plant's history; the photos of the question are attached on "Ja"."""
+    befund, ursache = befund.strip(), ursache.strip()
+    if not befund or len(befund) > MAX_FINDING or len(ursache) > MAX_NOTE:
+        return {"fehler": f"Befund mit 1-{MAX_FINDING} Zeichen, Ursache höchstens {MAX_NOTE}."}
+    if sicherheit not in CONFIDENCE:
+        return {"fehler": "sicherheit: 'ziemlich sicher' oder 'sicher'. Bei Unsicherheit keine Diagnose, nachfragen."}
+    if not await active_plant(c, pflanze_id):
+        return {"fehler": "Pflanze nicht gefunden"}
+    payload = {"plant_id": pflanze_id, "title": befund, "confidence": sicherheit, "cause": ursache}
+    return await _propose(c, message_id, "diagnose", payload)

@@ -15,6 +15,7 @@ dependencies = [
   "httpx>=0.28",
   "defusedxml>=0.7",
   "mcp>=2.3",
+  "pillow>=12.3",
 ]
 
 [dependency-groups]

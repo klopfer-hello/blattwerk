@@ -12,6 +12,7 @@ budget and a timeout, and returns the structured answer validated against a
 JSON schema by the CLI (--json-schema) and again by Pydantic in the caller."""
 
 import asyncio
+import base64
 import contextlib
 import hashlib
 import json
@@ -140,11 +141,13 @@ async def run_stream(
     budget_usd: float = 0.30,
     timeout_s: int = 300,
     max_turns: int = 8,
+    images: list[bytes] | None = None,
 ) -> AsyncGenerator[dict[str, Any]]:
     """`claude -p --output-format stream-json`: one parsed JSON event per line. Only the given
     MCP servers (strict), only `allowed` tools, no built-in tools, no session files. The MCP
     config (may carry the database URL for the server) lives in a private temp file that is
-    removed afterwards."""
+    removed afterwards. With `images` (JPEG) the prompt goes in as one stream-json user message
+    with image blocks."""
     if not cfg.token:
         raise NotReady("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")
     binary = binary_path(cfg)
@@ -163,12 +166,22 @@ async def run_stream(
             "--no-session-persistence", "--max-turns", str(max_turns), "--max-budget-usd", f"{budget_usd:.2f}",
             "--append-system-prompt", system,
         ]  # fmt: skip
+        stdin = prompt.encode()
+        if images:
+            args += ["--input-format", "stream-json"]
+            content: list[dict[str, Any]] = [
+                {"type": "image", "source": {"type": "base64", "media_type": "image/jpeg",
+                                             "data": base64.b64encode(img).decode()}}
+                for img in images
+            ]  # fmt: skip
+            content.append({"type": "text", "text": prompt})
+            stdin = json.dumps({"type": "user", "message": {"role": "user", "content": content}}).encode() + b"\n"
         proc = await asyncio.create_subprocess_exec(
             *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
             env=_env(cfg), cwd=str(cfg.root / "home"), limit=4 * 1024 * 1024,
         )  # fmt: skip
         assert proc.stdin is not None and proc.stdout is not None
-        proc.stdin.write(prompt.encode())
+        proc.stdin.write(stdin)
         await proc.stdin.drain()
         proc.stdin.close()
         deadline = asyncio.get_running_loop().time() + timeout_s

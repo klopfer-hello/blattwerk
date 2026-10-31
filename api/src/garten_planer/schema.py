@@ -19,6 +19,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     MetaData,
     SmallInteger,
     Table,
@@ -344,6 +345,7 @@ chats = Table(  # garden chat (M8, F-AI-4): one conversation
     metadata,
     Column("id", Text, primary_key=True),
     Column("title", Text, nullable=False),
+    Column("plant_id", Text, ForeignKey("plants.id", ondelete="SET NULL")),  # "Pflanze krank?": the plant asked about
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("updated_at", DateTime(timezone=True), nullable=False),
 )
@@ -355,6 +357,7 @@ chat_messages = Table(  # user question or assistant answer; the worker fills th
     Column("chat_id", Text, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False, index=True),
     Column("role", Text, nullable=False),
     Column("text", Text, nullable=False),
+    Column("photos", JSONB, nullable=False, server_default=text("'[]'::jsonb")),  # photo ids of a question (M9)
     Column("status", Text, nullable=False),
     Column("error", Text),
     Column("model", Text),
@@ -378,6 +381,31 @@ chat_actions = Table(  # what the chat proposes; only the user's "Ja" carries it
     Column("result_id", Text),  # the task created, or the plant noted
     Column("created_at", DateTime(timezone=True), nullable=False),
     Column("decided_at", DateTime(timezone=True)),
-    CheckConstraint(_in("kind", ("aufgabe", "notiz")), name="kind"),
+    CheckConstraint(_in("kind", ("aufgabe", "notiz", "diagnose")), name="kind"),
     CheckConstraint(_in("status", ("proposed", "done", "rejected")), name="status"),
+)
+
+photos = Table(  # plant doctor (M9): re-encoded JPEG without metadata
+    "photos",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("data", LargeBinary, nullable=False),
+    Column("width", Integer, nullable=False),
+    Column("height", Integer, nullable=False),
+    Column("message_id", Text, ForeignKey("chat_messages.id", ondelete="SET NULL"), index=True),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+)
+
+diagnoses = Table(  # a diagnosis the user saved from the chat; part of the plant's history
+    "diagnoses",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("plant_id", Text, ForeignKey("plants.id", ondelete="RESTRICT"), nullable=False, index=True),
+    Column("title", Text, nullable=False),
+    Column("confidence", Text, nullable=False),
+    Column("cause", Text, nullable=False),
+    Column("photo_ids", JSONB, nullable=False, server_default=text("'[]'::jsonb")),
+    Column("message_id", Text, ForeignKey("chat_messages.id", ondelete="SET NULL")),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    CheckConstraint(_in("confidence", ("ziemlich sicher", "sicher")), name="confidence"),
 )
