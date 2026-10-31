@@ -3,41 +3,6 @@ import { ApiError, api, type GardenSettings, type Reading, type Season, type Wea
 import { FERTILISER } from './Settings';
 import { Back, Icon, localIso } from '../components/ui';
 
-export function Chat() {
-  const [answer, setAnswer] = useState<'yes' | 'no' | null>(null);
-  return (
-    <div className="page">
-      <header className="stack" style={{ gap: 6 }}>
-        <span className="chip" style={{ background: 'var(--legal-tint)', color: 'var(--legal-ink)' }}>Vorschau – der Garten-Chat kommt mit M8</span>
-        <h1 className="title-s">Fragen</h1>
-        <span className="small muted">Kennt später deine Pflanzen, Aufgaben und das Wetter. So soll es aussehen:</span>
-      </header>
-
-      <div className="bubble-me">Was muss vor dem Frost am Dienstag noch passieren?</div>
-      <div className="bubble-ai">
-        <span>Bis Montagabend <strong>zwei Dinge</strong>:</span>
-        <span>• <strong>Dahlie ‘Café au Lait’</strong> ausgraben – die Knollen erfrieren ab −2 °C.</span>
-        <span>• <strong>Oleander</strong> ins Winterquartier – drei Nächte bis −6 °C sind zu viel.</span>
-        <span className="tiny">Beispiel-Antwort</span>
-      </div>
-      <div className="outline stack" style={{ alignSelf: 'flex-start', maxWidth: '88%', border: '2px solid var(--green)', gap: 10 }}>
-        <span>Soll ich eine Aufgabe anlegen?<br /><strong>„Gemüsebeet 1 mit Vlies abdecken“</strong></span>
-        {answer === null ? (
-          <div className="grid2" style={{ gap: 8 }}>
-            <button className="btn" style={{ background: 'var(--green)', color: 'var(--green-ink)', border: 0, fontWeight: 700 }} onClick={() => setAnswer('yes')}>Ja, anlegen</button>
-            <button className="btn" onClick={() => setAnswer('no')}>Nein</button>
-          </div>
-        ) : <span className="muted">{answer === 'yes' ? 'In der Vorschau wird nichts angelegt.' : 'Nicht angelegt.'}</span>}
-      </div>
-      <div className="chatbar">
-        <label className="sr-only" htmlFor="msg">Nachricht</label>
-        <input id="msg" className="input" style={{ borderRadius: 24 }} placeholder="Kommt mit M8" disabled />
-        <button className="btn" aria-label="Senden" disabled style={{ width: 48, padding: 0, borderRadius: 24 }}><Icon name="send" size={20} /></button>
-      </div>
-    </div>
-  );
-}
-
 const num = (v: number | null | undefined, unit: string, digits = 1) =>
   v === null || v === undefined ? '–' : `${v.toLocaleString('de-DE', { maximumFractionDigits: digits })} ${unit}`;
 const ago = (iso: string) => {

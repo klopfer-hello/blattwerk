@@ -1,13 +1,13 @@
 // App shell: routing, navigation, the welcome sheet. Since M3 the checklist,
-// plants and calendar are real data from the API; weather (M6) and the garden
-// chat (M8) are still previews and say so on their screens.
+// plants, calendar, weather (M6), season (M7) and the garden chat (M8) are real data.
 import { useEffect, useState } from 'react';
 import { Nav, useRoute } from './components/ui';
 import { Alert, Today } from './screens/Today';
 import { TaskForm, TodoDetail } from './screens/Task';
 import { Calendar } from './screens/Calendar';
 import { PlantDetail, PlantForm, Plants, Standorte } from './screens/Plants';
-import { Chat, More, Weather } from './screens/More';
+import { More, Weather } from './screens/More';
+import { ChatView, Chats } from './screens/Chat';
 import { Settings } from './screens/Settings';
 
 const KEY = 'garten-planer-welcomed-v2';
@@ -32,7 +32,7 @@ export function App() {
       case 'pflanze': return sub === 'bearbeiten' ? <PlantForm key={`edit-${arg}`} id={arg} /> : <PlantDetail key={arg} id={arg ?? ''} />;
       case 'neu': return <PlantForm key="new" />;
       case 'standorte': return <Standorte />;
-      case 'fragen': return <Chat />;
+      case 'fragen': return arg ? <ChatView key={arg} id={arg} /> : <Chats />;
       case 'wetter': return <Weather />;
       case 'einstellungen': return <Settings />;
       case 'mehr': return <More onWelcome={() => setWelcomed(false)} />;
@@ -58,7 +58,7 @@ function Welcome({ onClose }: { onClose: () => void }) {
           <li><strong>Heute</strong>: die Aufgaben dieses Monats. Kästchen antippen = erledigt, Text antippen = Anleitung, Notiz, Verschieben.</li>
           <li><strong>Kalender</strong>: was in jedem Monat ansteht.</li>
           <li><strong>Pflanzen</strong>: eure Pflanzen und Standorte, mit ihren Aufgaben.</li>
-          <li><strong>Fragen</strong>: hier beantwortet später eine KI Fragen zum Garten (noch Vorschau).</li>
+          <li><strong>Fragen</strong>: eine KI beantwortet Fragen zu deinem Garten und schlägt Aufgaben vor.</li>
           <li><strong>Mehr</strong>: Einstellungen, Standorte, Wetter.</li>
         </ul>
         <p className="small muted">Tipp: Im Browser-Menü „Zum Home-Bildschirm“ wählen – dann öffnet sich die App wie eine normale App.</p>

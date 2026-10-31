@@ -12,10 +12,13 @@ budget and a timeout, and returns the structured answer validated against a
 JSON schema by the CLI (--json-schema) and again by Pydantic in the caller."""
 
 import asyncio
+import contextlib
 import hashlib
 import json
 import os
+import tempfile
 import urllib.request
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -121,6 +124,76 @@ async def run_json(
         await proc.wait()
         raise ClaudeError(f"Die KI hat nach {timeout_s} s nicht geantwortet.") from None
     return parse_result(out.decode(errors="replace"), proc.returncode or 0, err.decode(errors="replace"))
+
+
+async def run_stream(
+    cfg: CliConfig,
+    prompt: str,
+    system: str,
+    mcp_servers: dict[str, Any],
+    allowed: str,
+    model: str = "sonnet",
+    budget_usd: float = 0.30,
+    timeout_s: int = 300,
+    max_turns: int = 8,
+) -> AsyncGenerator[dict[str, Any]]:
+    """`claude -p --output-format stream-json`: one parsed JSON event per line. Only the given
+    MCP servers (strict), only `allowed` tools, no built-in tools, no session files. The MCP
+    config (may carry the database URL for the server) lives in a private temp file that is
+    removed afterwards."""
+    if not cfg.token:
+        raise ClaudeError("Die KI ist noch nicht eingerichtet (CLAUDE_CODE_OAUTH_TOKEN fehlt auf dem Server).")
+    binary = binary_path(cfg)
+    if not binary.exists():
+        raise ClaudeError("Claude ist noch nicht installiert. Der Worker lädt es beim nächsten Start.")
+    for d in ("home", "config"):
+        (cfg.root / d).mkdir(parents=True, exist_ok=True)
+    fd, path = tempfile.mkstemp(prefix="mcp-", suffix=".json")
+    try:
+        with os.fdopen(fd, "w") as f:  # mode 0600 from mkstemp
+            json.dump({"mcpServers": mcp_servers}, f)
+        args = [
+            str(binary), "-p", "--output-format", "stream-json", "--verbose", "--include-partial-messages",
+            "--model", model, "--tools", "", "--strict-mcp-config", "--mcp-config", path,
+            "--allowedTools", allowed, "--permission-mode", "dontAsk", "--disable-slash-commands",
+            "--no-session-persistence", "--max-turns", str(max_turns), "--max-budget-usd", f"{budget_usd:.2f}",
+            "--append-system-prompt", system,
+        ]  # fmt: skip
+        proc = await asyncio.create_subprocess_exec(
+            *args, stdin=asyncio.subprocess.PIPE, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.DEVNULL,
+            env=_env(cfg), cwd=str(cfg.root / "home"), limit=4 * 1024 * 1024,
+        )  # fmt: skip
+        assert proc.stdin is not None and proc.stdout is not None
+        proc.stdin.write(prompt.encode())
+        await proc.stdin.drain()
+        proc.stdin.close()
+        deadline = asyncio.get_running_loop().time() + timeout_s
+        try:
+            while True:
+                left = deadline - asyncio.get_running_loop().time()
+                if left <= 0:
+                    raise TimeoutError
+                line = await asyncio.wait_for(proc.stdout.readline(), timeout=left)
+                if not line:
+                    break
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if isinstance(event, dict):
+                    yield event
+            await asyncio.wait_for(proc.wait(), timeout=10)
+        except TimeoutError:
+            raise ClaudeError(f"Die KI hat nach {timeout_s} s nicht fertig geantwortet.") from None
+        finally:
+            if proc.returncode is None:
+                proc.kill()
+                await proc.wait()
+        if proc.returncode not in (0, None):
+            raise ClaudeError("Die KI hat einen Fehler gemeldet. Bitte später nochmal versuchen.")
+    finally:
+        with contextlib.suppress(FileNotFoundError):
+            os.unlink(path)
 
 
 def parse_result(stdout: str, code: int, stderr: str) -> tuple[dict[str, Any], dict[str, Any]]:

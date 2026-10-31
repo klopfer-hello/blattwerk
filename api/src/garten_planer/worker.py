@@ -9,10 +9,12 @@ ALIVE for the container healthcheck. Logs carry error types only (no endpoints,
 no SQL parameters)."""
 
 import asyncio
+import contextlib
 import json
 import logging
+import sys
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncGenerator, Awaitable, Callable
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -21,12 +23,12 @@ from sqlalchemy import delete, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection, AsyncEngine, create_async_engine
 
-from garten_planer import mosmix, names, pheno_fetch
-from garten_planer.claude_cli import ClaudeError, binary_path, config_from_env, ensure_cli, run_json
+from garten_planer import chat, mosmix, names, pheno_fetch
+from garten_planer.claude_cli import ClaudeError, binary_path, config_from_env, ensure_cli, run_json, run_stream
 from garten_planer.config import Config
 from garten_planer.digest import digest_due, digest_text
 from garten_planer.influx import from_config
-from garten_planer.jobs import NAME_QUEUED_FOR, fail_stale, used_today
+from garten_planer.jobs import CHAT_QUEUED_FOR, CHAT_STALE, NAME_QUEUED_FOR, fail_stale, used_today
 from garten_planer.models import GardenSettings, known_fields
 from garten_planer.plan import (
     SCHEMA,
@@ -38,6 +40,8 @@ from garten_planer.plan import (
 )
 from garten_planer.routes.todos import TZ, _active, _plant_join, materialize
 from garten_planer.schema import (
+    chat_messages,
+    chats,
     cultivars,
     kv,
     name_jobs,
@@ -56,6 +60,7 @@ FORECAST_S = 3600  # MOSMIX_L is issued every 6 h; hourly keeps the newest
 SEASON_S = 24 * 3600
 SEASON_RETRY_S = 3600
 FORECAST_RETRY_S = 300  # influxdb still starting, DWD briefly down
+CHAT_LOOP_S = 1  # someone is waiting for the answer
 PLAN_LOOP_S = 5  # the user waits for the plan; a cheap indexed query
 LOOP_S = 30
 MAX_ATTEMPTS = 5
@@ -367,6 +372,89 @@ async def run_name_jobs(engine: AsyncEngine, runner: Runner, daily_limit: int) -
         finished += 1
 
 
+Streamer = Callable[[str, str, str], AsyncGenerator[dict[str, Any]]]
+FLUSH_S = 0.3  # how often a growing answer is written (the web polls it)
+
+
+async def run_chat_jobs(engine: AsyncEngine, stream: Streamer, daily_limit: int) -> int:
+    """Answer queued chat questions one after another; returns how many finished."""
+    finished = 0
+    while True:
+        async with engine.begin() as c:
+            await fail_stale(c, chat_messages, CHAT_STALE, queued_for=CHAT_QUEUED_FOR)
+            if await used_today(c, chat_messages, TZ) >= daily_limit:  # started = assistant rows only
+                return finished
+            job = (
+                await c.execute(
+                    select(chat_messages.c.id, chat_messages.c.chat_id, chat_messages.c.created_at)
+                    .where(chat_messages.c.status == "queued", chat_messages.c.role == "assistant")
+                    .order_by(chat_messages.c.created_at)
+                    .limit(1)
+                    .with_for_update(skip_locked=True)
+                )
+            ).first()
+            if job is None:
+                return finished
+            await c.execute(
+                update(chat_messages)
+                .where(chat_messages.c.id == job.id)
+                .values(status="running", started_at=datetime.now(UTC))
+            )
+            earlier = (
+                await c.execute(
+                    select(chat_messages.c.role, chat_messages.c.text)
+                    .where(chat_messages.c.chat_id == job.chat_id, chat_messages.c.created_at < job.created_at,
+                           chat_messages.c.status == "done")
+                    .order_by(chat_messages.c.created_at)
+                )
+            ).all()  # fmt: skip
+        history = [(r.role, r.text) for r in earlier]
+        question = history.pop()[1] if history and history[-1][0] == "user" else ""
+        text, last_flush, values = "", 0.0, {}
+        try:
+            async with contextlib.aclosing(stream(chat.build_prompt(history, question), chat.SYSTEM, job.id)) as events:
+                async for event in events:
+                    parsed = chat.parse_event(event)
+                    if parsed is None:
+                        continue
+                    kind, data = parsed
+                    if kind == "turn" and text and not text.endswith("\n\n"):
+                        text += "\n\n"
+                    elif kind == "text":
+                        text += data
+                    elif kind == "result":
+                        if data.get("is_error"):
+                            raise ClaudeError("Die KI hat einen Fehler gemeldet. Bitte später nochmal versuchen.")
+                        values = {
+                            "cost_usd": data.get("total_cost_usd"),
+                            "model": next(iter(data.get("modelUsage") or {}), None),
+                        }
+                    now = asyncio.get_running_loop().time()
+                    if kind == "text" and now - last_flush >= FLUSH_S:
+                        last_flush = now
+                        async with engine.begin() as c:
+                            await c.execute(update(chat_messages).where(chat_messages.c.id == job.id).values(text=text))
+            values |= {"status": "done", "text": text.strip() or "(keine Antwort)"}
+        except asyncio.CancelledError:  # worker stops: the answer ends now, not after the stale sweep
+            async with engine.begin() as c:
+                await c.execute(update(chat_messages).where(chat_messages.c.id == job.id).values(
+                    status="failed", text=text, error="Unterbrochen (Server-Neustart). Bitte nochmal fragen.",
+                    finished_at=datetime.now(UTC)))  # fmt: skip
+            raise
+        except Exception as e:  # keep what came so far; the message says why
+            error = str(e) if isinstance(e, ClaudeError) else "Unerwarteter Fehler bei der Antwort."
+            values = {"status": "failed", "text": text.strip(), "error": error}
+            log.warning("chat answer failed: %s", type(e).__name__)
+        async with engine.begin() as c:
+            await c.execute(
+                update(chat_messages)
+                .where(chat_messages.c.id == job.id)
+                .values(finished_at=datetime.now(UTC), **values)
+            )
+            await c.execute(update(chats).where(chats.c.id == job.chat_id).values(updated_at=datetime.now(UTC)))
+        finished += 1
+
+
 async def wait_ready(ready: asyncio.Event) -> None:
     await ready.wait()
 
@@ -408,8 +496,32 @@ async def ai_loops(engine: AsyncEngine, cfg: Config) -> None:
                 log.warning("%s jobs failed: %s", name, type(e).__name__)
             await asyncio.sleep(PLAN_LOOP_S)
 
+    def streamer() -> Streamer:
+        base: dict[str, str] = {
+            "GP_DATABASE_URL": cfg.database_url.get_secret_value(), "GP_INFLUX_URL": cfg.influx_url,
+            "GP_INFLUX_TOKEN": cfg.influx_token.get_secret_value(), "PYTHONDONTWRITEBYTECODE": "1",
+        }  # fmt: skip
+
+        def run(prompt: str, system: str, message_id: str) -> AsyncGenerator[dict[str, Any]]:
+            server = {"command": sys.executable, "args": ["-m", "garten_planer.mcp_garten"],
+                      "env": base | {"GP_CHAT_MESSAGE_ID": message_id}}  # fmt: skip
+            return run_stream(cli, prompt, system, {"garten": server}, "mcp__garten__*", model=cfg.plan_model,
+                              budget_usd=cfg.chat_budget_usd)  # fmt: skip
+
+        return run
+
+    async def serve_fast(name: str, run: Callable[[], Awaitable[int]]) -> None:
+        await wait_ready(ready)
+        while True:
+            try:
+                await run()
+            except Exception as e:  # keep running; type only
+                log.warning("%s jobs failed: %s", name, type(e).__name__)
+            await asyncio.sleep(CHAT_LOOP_S)
+
     await asyncio.gather(
         install(),
+        serve_fast("chat", lambda: run_chat_jobs(engine, streamer(), cfg.chat_daily_limit)),
         serve("plan", lambda: run_plan_jobs(engine, runner(cfg.plan_budget_usd), cfg.plan_daily_limit)),
         serve("name", lambda: run_name_jobs(engine, runner(cfg.name_budget_usd), cfg.name_daily_limit)),
     )

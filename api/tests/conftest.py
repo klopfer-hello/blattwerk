@@ -20,7 +20,8 @@ DATABASE_URL = os.environ.get(
 )
 BASE = "http://testserver"
 TABLES = ", ".join([
-    "pheno_events", "pheno_normals", "name_jobs", "plan_jobs", "push_messages", "push_subs", "kv", "todos", "tasks",
+    "chat_actions", "chat_messages", "chats", "pheno_events", "pheno_normals", "name_jobs", "plan_jobs",
+    "push_messages", "push_subs", "kv", "todos", "tasks",
     "weather_alerts", "care_plans", "plants", "standorte", "cultivars", "species", "settings",
 ])  # fmt: skip
 

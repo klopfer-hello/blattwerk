@@ -10,7 +10,9 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 
 STALE = timedelta(minutes=15)  # a running job older than this lost its worker (CLI timeout is 5 min)
 INTERRUPTED = "Unterbrochen (Server-Neustart). Bitte nochmal versuchen."
-NAME_QUEUED_FOR = timedelta(minutes=10)  # a name lookup nobody started by then is dropped
+NAME_QUEUED_FOR = timedelta(minutes=10)
+CHAT_QUEUED_FOR = timedelta(minutes=3)  # nobody waits longer for an answer to start
+CHAT_STALE = timedelta(minutes=8)  # CLI timeout is 5 min  # a name lookup nobody started by then is dropped
 EXPIRED = "Die KI war zu lange beschäftigt. Bitte nochmal versuchen."
 
 

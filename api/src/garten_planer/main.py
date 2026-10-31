@@ -17,6 +17,7 @@ from garten_planer.errors import ApiError
 from garten_planer.guard import WriteGuard
 from garten_planer.influx import from_config
 from garten_planer.routes import (
+    chat,
     health,
     names,
     plans,
@@ -87,6 +88,6 @@ def create_app(config: Config | None = None) -> FastAPI:
             body["fields"] = exc.fields
         return JSONResponse(body, status_code=exc.status)
 
-    for module in (health, settings, standorte, names, species, plants, todos, push, plans, weather, season):
+    for module in (health, settings, standorte, names, species, plants, todos, push, plans, weather, season, chat):
         app.include_router(module.router, prefix="/api")
     return app

@@ -134,6 +134,10 @@ export interface Season {
   gdd: { sum: number; as_of: string; normal: number; days_ahead: number | null } | null;
   region_ready: boolean;
 }
+export interface ChatSummary { id: string; title: string; updated_at: string }
+export interface ChatAction { id: string; kind: 'aufgabe' | 'notiz'; payload: Record<string, unknown>; status: 'proposed' | 'done' | 'rejected'; plant: string | null }
+export interface ChatMessage { id: string; role: 'user' | 'assistant'; text: string; status: 'queued' | 'running' | 'done' | 'failed'; error: string | null; actions: ChatAction[] }
+export interface ChatFull { id: string; title: string; messages: ChatMessage[] }
 export interface Picked { species_id: string; cultivar_id: string | null; latin: string; german: string; form_hint: Form | null }
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
@@ -160,6 +164,13 @@ export const api = {
   season: () => request<Season>('GET', '/season'),
   observe: (phase: string, day: string) => request<Season>('POST', '/season/observations', { phase, day }),
   unobserve: (phase: string) => request<unknown>('DELETE', `/season/observations/${enc(phase)}`),
+  chats: () => request<ChatSummary[]>('GET', '/chats'),
+  chat: (id: string) => request<ChatFull>('GET', `/chats/${enc(id)}`),
+  newChat: (text: string) => request<{ chat_id: string; message_id: string }>('POST', '/chats', { text }),
+  ask: (id: string, text: string) => request<{ chat_id: string; message_id: string }>('POST', `/chats/${enc(id)}/messages`, { text }),
+  deleteChat: (id: string) => request<unknown>('DELETE', `/chats/${enc(id)}`),
+  confirmAction: (id: string) => request<unknown>('POST', `/chat-actions/${enc(id)}/confirm`),
+  rejectAction: (id: string) => request<unknown>('POST', `/chat-actions/${enc(id)}/reject`),
   askNames: (q: string) => request<{ job_id: string }>('POST', '/species/ai', { q }),
   nameJob: (id: string) => request<NameJob>('GET', `/species/ai/${enc(id)}`),
   pickName: (id: string, index: number) => request<Picked>('POST', `/species/ai/${enc(id)}/pick`, { index }),

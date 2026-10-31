@@ -335,3 +335,46 @@ pheno_normals = Table(  # long-term median day of year 1991-2020 per phase in th
     Column("stations", Integer, nullable=False),  # number of (station, year) values behind it
     Column("computed_at", DateTime(timezone=True), nullable=False),
 )
+
+chats = Table(  # garden chat (M8, F-AI-4): one conversation
+    "chats",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("title", Text, nullable=False),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("updated_at", DateTime(timezone=True), nullable=False),
+)
+
+chat_messages = Table(  # user question or assistant answer; the worker fills the answer while it streams
+    "chat_messages",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("chat_id", Text, ForeignKey("chats.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("role", Text, nullable=False),
+    Column("text", Text, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("error", Text),
+    Column("model", Text),
+    Column("cost_usd", Float),
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("started_at", DateTime(timezone=True)),
+    Column("finished_at", DateTime(timezone=True)),
+    CheckConstraint(_in("role", ("user", "assistant")), name="role"),
+    CheckConstraint(_in("status", ("queued", "running", "done", "failed")), name="status"),
+    Index("ix_chat_messages_status_created_at", "status", "created_at"),
+)
+
+chat_actions = Table(  # what the chat proposes; only the user's "Ja" carries it out (no writes by the AI)
+    "chat_actions",
+    metadata,
+    Column("id", Text, primary_key=True),
+    Column("message_id", Text, ForeignKey("chat_messages.id", ondelete="CASCADE"), nullable=False, index=True),
+    Column("kind", Text, nullable=False),
+    Column("payload", JSONB, nullable=False),
+    Column("status", Text, nullable=False),
+    Column("result_id", Text),  # the task created, or the plant noted
+    Column("created_at", DateTime(timezone=True), nullable=False),
+    Column("decided_at", DateTime(timezone=True)),
+    CheckConstraint(_in("kind", ("aufgabe", "notiz")), name="kind"),
+    CheckConstraint(_in("status", ("proposed", "done", "rejected")), name="status"),
+)

@@ -24,6 +24,8 @@ class Config(BaseSettings):
     plan_daily_limit: int = 60  # plan runs per day for the whole garden
     name_budget_usd: float = 0.20  # per name lookup
     name_daily_limit: int = 100
+    chat_daily_limit: int = 150  # chat answers per day
+    chat_budget_usd: float = 0.30  # per answer
     # Weather (M6). Coordinates and HA entities live only in the host's .env.
     influx_url: str = "http://influxdb:8181"
     influx_token: SecretStr = SecretStr("")
