@@ -54,7 +54,7 @@ fi
 
 echo "==> switching to ${tag}"
 ssh_ "mkdir -p '$DEPLOY_DIR'"
-scp -q deploy/docker-compose.yml "$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.yml"
+scp -q deploy/docker-compose.yml deploy/backup.sh "$DEPLOY_HOST:$DEPLOY_DIR/"
 ssh_ bash -s -- "$DEPLOY_DIR" "$tag" "$GP_HOST" "$TRAEFIK_NETWORK" <<'REMOTE'
 set -euo pipefail
 cd "$1"; tag=$2
