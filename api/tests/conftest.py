@@ -1,44 +1,56 @@
-"""Fixtures: every test gets the app on its own throwaway database in the
-real FerretDB of the test compose project (MONGO_URL), dropped afterwards."""
+"""Fixtures. One test database per run, built with the real Alembic migrations
+(so every run also tests them); all tables are emptied before each test and
+every test gets a fresh app (which seeds the species again)."""
 
 import os
 import time
-import uuid
 from collections.abc import Iterator
 
 import pytest
 from fastapi.testclient import TestClient
-from pymongo import MongoClient
-from pymongo.errors import PyMongoError
+from sqlalchemy import Engine, create_engine, text
+from sqlalchemy.exc import OperationalError
 
 from garten_planer.config import Config
 from garten_planer.main import create_app
+from garten_planer.migrate import upgrade
 
-MONGO_URL = os.environ.get("MONGO_URL", "mongodb://test:test@localhost:27017/")
+DATABASE_URL = os.environ.get(
+    "GP_TEST_DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/garten_planer_test"
+)
 BASE = "http://testserver"
+TABLES = "plants, standorte, cultivars, species, settings"
 
 
-@pytest.fixture(scope="session", autouse=True)
-def _database_ready() -> None:
-    """FerretDB starts after PostgreSQL; wait up to 60 s for the first ping."""
+@pytest.fixture(scope="session")
+def engine() -> Iterator[Engine]:
+    """Wait for PostgreSQL (up to 60 s), start from an empty schema, migrate to head."""
+    eng = create_engine(DATABASE_URL)
     deadline = time.monotonic() + 60
     while True:
         try:
-            with MongoClient(MONGO_URL, serverSelectionTimeoutMS=2000) as c:
-                c.admin.command("ping")
-            return
-        except PyMongoError:
+            with eng.begin() as c:
+                c.execute(text("DROP SCHEMA public CASCADE; CREATE SCHEMA public"))
+            break
+        except OperationalError:
             if time.monotonic() > deadline:
                 raise
             time.sleep(1)
+    upgrade(DATABASE_URL)
+    yield eng
+    eng.dispose()
 
 
 @pytest.fixture
-def config() -> Iterator[Config]:
-    cfg = Config(mongo_url=MONGO_URL, db_name=f"test_{uuid.uuid4().hex[:12]}", version="9.9.9+test")
-    yield cfg
-    with MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000) as c:
-        c.drop_database(cfg.db_name)
+def db(engine: Engine) -> Engine:
+    with engine.begin() as c:
+        c.execute(text(f"TRUNCATE {TABLES}"))
+    return engine
+
+
+@pytest.fixture
+def config(db: Engine) -> Config:
+    return Config(database_url=DATABASE_URL, version="9.9.9+test")  # type: ignore[arg-type]
 
 
 @pytest.fixture

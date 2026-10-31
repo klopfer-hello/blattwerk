@@ -1,23 +1,31 @@
-"""Garden settings (F-ST-1/3): one document, full replace on PUT."""
+"""Garden settings (F-ST-1/3): one row with a JSONB document, full replace on PUT.
+Reading ignores fields this version does not know (after a rollback)."""
 
-from fastapi import APIRouter, Request
+from fastapi import APIRouter
+from sqlalchemy import select
+from sqlalchemy.dialects.postgresql import insert
 
-from garten_planer.db import get_db
+from garten_planer.db import Conn
 from garten_planer.models import GardenSettings, known_fields
+from garten_planer.schema import settings
 
 router = APIRouter()
-DOC_ID = "garden"
 SCHEMA_VERSION = 1
 
 
 @router.get("/settings")
-async def read_settings(request: Request) -> GardenSettings:
-    doc = await get_db(request).settings.find_one({"_id": DOC_ID}, {"_id": 0, "schema_version": 0})
-    return GardenSettings.model_validate(known_fields(GardenSettings, doc or {}))
+async def read_settings(c: Conn) -> GardenSettings:
+    data = (await c.execute(select(settings.c.data).where(settings.c.id == 1))).scalar()
+    return GardenSettings.model_validate(known_fields(GardenSettings, data or {}))
 
 
 @router.put("/settings")
-async def write_settings(body: GardenSettings, request: Request) -> GardenSettings:
-    doc = {"schema_version": SCHEMA_VERSION, **body.model_dump()}
-    await get_db(request).settings.replace_one({"_id": DOC_ID}, doc, upsert=True)
+async def write_settings(body: GardenSettings, c: Conn) -> GardenSettings:
+    row = {"id": 1, "data": body.model_dump(), "schema_version": SCHEMA_VERSION}
+    stmt = insert(settings).values(row)
+    await c.execute(
+        stmt.on_conflict_do_update(
+            index_elements=["id"], set_={"data": stmt.excluded.data, "schema_version": stmt.excluded.schema_version}
+        )
+    )
     return body

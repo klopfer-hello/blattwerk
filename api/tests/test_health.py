@@ -12,7 +12,7 @@ def test_healthz_reports_version_and_db(client: TestClient) -> None:
 
 
 def test_db_errors_become_503_json_not_500() -> None:
-    cfg = Config(mongo_url="mongodb://nobody:x@127.0.0.1:1/", db_name="x", version="1", db_timeout_ms=300)
+    cfg = Config(database_url="postgresql+psycopg://nobody:x@127.0.0.1:1/x", version="1", db_timeout_s=1)  # type: ignore[arg-type]
     with TestClient(create_app(cfg)) as c:
         r = c.get("/api/settings")
         w = c.put("/api/settings", json={}, headers={"Content-Type": "application/json"})
@@ -21,7 +21,7 @@ def test_db_errors_become_503_json_not_500() -> None:
 
 
 def test_healthz_is_503_when_db_unreachable() -> None:
-    cfg = Config(mongo_url="mongodb://nobody:x@127.0.0.1:1/", db_name="x", version="1", db_timeout_ms=300)
+    cfg = Config(database_url="postgresql+psycopg://nobody:x@127.0.0.1:1/x", version="1", db_timeout_s=1)  # type: ignore[arg-type]
     with TestClient(create_app(cfg)) as c:
         r = c.get("/api/healthz")
     assert r.status_code == 503

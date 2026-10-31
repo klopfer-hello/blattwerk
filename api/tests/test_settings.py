@@ -2,10 +2,10 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from pymongo import MongoClient
+from sqlalchemy import Engine, insert
 
-from garten_planer.config import Config
-from tests.conftest import BASE, MONGO_URL
+from garten_planer.schema import settings
+from tests.conftest import BASE
 
 JSON = {"Content-Type": "application/json", "Origin": BASE}
 
@@ -66,12 +66,11 @@ def test_put_rejects_unknown_fields(client: TestClient) -> None:
     assert client.put("/api/settings", json=body, headers=JSON).status_code == 422
 
 
-def test_stored_document_with_unknown_fields_still_reads(client: TestClient, config: Config) -> None:
+def test_stored_document_with_unknown_fields_still_reads(client: TestClient, db: Engine) -> None:
     """After a rollback to an older version, newer fields must not break reading."""
-    with MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000) as c:
-        doc = {"_id": "garden", "schema_version": 2, **VALID, "future": 1}
-        doc["location"] = {**VALID["location"], "lat": 50.1}
-        c[config.db_name].settings.insert_one(doc)
+    data = {**VALID, "future": 1, "location": {**VALID["location"], "lat": 50.1}}
+    with db.begin() as c:
+        c.execute(insert(settings).values(id=1, data=data, schema_version=2))
     r = client.get("/api/settings")
     assert r.status_code == 200
     assert r.json() == VALID

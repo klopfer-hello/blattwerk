@@ -6,7 +6,9 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
   "fastapi>=0.120",
   "uvicorn>=0.35",
-  "pymongo>=4.13",
+  "sqlalchemy[asyncio]>=2.0",
+  "psycopg[binary]>=3.2",
+  "alembic>=1.16",
   "pydantic>=2.11",
   "pydantic-settings>=2.10",
 ]
@@ -38,6 +40,7 @@ strict = true
 python_version = "3.13"
 mypy_path = "src"
 packages = ["garten_planer"]
+exclude = ["src/garten_planer/migrations/"]  # alembic scripts: dynamic, revision file names
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

@@ -7,6 +7,8 @@
 #   scripts/deploy.sh                    test, build HEAD, ship, switch
 #   scripts/deploy.sh --allow-dirty      deploy uncommitted changes (+sha.dirty.<time>)
 #   scripts/deploy.sh --version <tag>    switch back to images already on the host (e.g. 0.2.0-beta.1-<sha>)
+#   A rollback restores the previous compose file too; past a DB migration it also needs
+#   the backup taken before the deploy (scripts/backup.sh restore …).
 # Before a deploy with a DB schema change: make a backup first (ticket 011).
 set -euo pipefail
 cd "$(dirname "$0")/.."
@@ -54,7 +56,8 @@ fi
 
 echo "==> switching to ${tag}"
 ssh_ "mkdir -p '$DEPLOY_DIR'"
-scp -q deploy/docker-compose.yml deploy/backup.sh "$DEPLOY_HOST:$DEPLOY_DIR/"
+scp -q deploy/docker-compose.yml "$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.yml.new"
+scp -q deploy/backup.sh "$DEPLOY_HOST:$DEPLOY_DIR/"
 ssh_ bash -s -- "$DEPLOY_DIR" "$tag" "$GP_HOST" "$TRAEFIK_NETWORK" <<'REMOTE'
 set -euo pipefail
 cd "$1"; tag=$2
@@ -65,6 +68,9 @@ setenv() {   # set KEY=value, or remove KEY when value is empty
   chmod 600 .env.new && mv .env.new .env
 }
 prev_web=$(get GARTEN_PLANER_WEB_IMAGE); prev_api=$(get GARTEN_PLANER_API_IMAGE)
+# Keep the compose file that belongs to the previous images: a rollback needs both.
+if [[ -f docker-compose.yml ]]; then cp docker-compose.yml docker-compose.yml.prev; fi
+mv docker-compose.yml.new docker-compose.yml
 [[ -z $prev_web ]] && prev_web=$(get GARTEN_PLANER_IMAGE)       # 0.1.x used one image variable
 setenv GARTEN_PLANER_IMAGE ''
 [[ -n $(get GP_DB_PASSWORD) ]] || setenv GP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
@@ -74,7 +80,7 @@ setenv GARTEN_PLANER_WEB_IMAGE "garten-planer-web:$tag"; setenv GARTEN_PLANER_AP
 healthy() {   # every container with a healthcheck healthy, within 90 s
   for _ in $(seq 1 45); do
     ok=true
-    for c in garten-planer-postgres garten-planer-api garten-planer-web; do
+    for c in garten-planer-db garten-planer-api garten-planer-web; do
       case $(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing) in
         healthy) ;;
         unhealthy) return 1 ;;
@@ -94,13 +100,16 @@ if docker compose up -d --remove-orphans >/dev/null 2>&1 && healthy \
   exit 0
 fi
 echo "switch FAILED" >&2
-for c in garten-planer-api garten-planer-web garten-planer-ferretdb; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
+for c in garten-planer-migrate garten-planer-api garten-planer-web; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
 if [[ -n $prev_web && -n $prev_api ]]; then
+  [[ -f docker-compose.yml.prev ]] && cp docker-compose.yml.prev docker-compose.yml
   setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"; setenv GARTEN_PLANER_API_IMAGE "$prev_api"
-  docker compose up -d >/dev/null 2>&1 || true
-  echo "ROLLED BACK to $prev_web / $prev_api" >&2
+  docker compose up -d --remove-orphans >/dev/null 2>&1 || true
+  echo "ROLLED BACK to $prev_web / $prev_api (with the previous compose file)" >&2
+  echo "If the failed version had already migrated the DB: restore the backup taken before the deploy." >&2
 elif [[ -n $prev_web ]]; then   # first deploy with a backend: back to the web-only prototype
-  docker compose stop api ferretdb postgres >/dev/null 2>&1 || true
+  docker compose stop api db >/dev/null 2>&1 || true
+  [[ -f docker-compose.yml.prev ]] && cp docker-compose.yml.prev docker-compose.yml
   setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"
   docker compose up -d --no-deps web >/dev/null 2>&1 || true
   echo "ROLLED BACK to $prev_web (backend stopped)" >&2

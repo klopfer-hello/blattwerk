@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # All tests, in Docker (nothing to install on the PC):
-#   scripts/test.sh          api (lint, types, pytest against real FerretDB) + web (type-check, build)
+#   scripts/test.sh          api (lint, types, pytest against a real PostgreSQL) + web (type-check, build)
 #   scripts/test.sh api      only the api suite;  scripts/test.sh web   only the web build
 #   scripts/test.sh api -k settings   extra args go to pytest
 # The api stack runs as compose project garten-planer-test and is always removed.

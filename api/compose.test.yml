@@ -1,31 +1,24 @@
-# Throwaway test stack (scripts/test.sh): real FerretDB on PostgreSQL, data in
-# tmpfs, fixed test-only credentials. Project name garten-planer-test.
+# Throwaway test stack (scripts/test.sh): PostgreSQL with data in tmpfs, fixed
+# test-only credentials. Project name garten-planer-test.
 services:
   postgres:
-    image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
+    image: postgres:17.10-alpine
     environment:
       POSTGRES_USER: test
       POSTGRES_PASSWORD: test
-      POSTGRES_DB: postgres
+      POSTGRES_DB: garten_planer_test
     tmpfs:
       - /var/lib/postgresql/data
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "test", "-d", "postgres"]
+      test: ["CMD", "pg_isready", "-U", "test", "-d", "garten_planer_test"]
       interval: 2s
       retries: 30
-  ferretdb:
-    image: ghcr.io/ferretdb/ferretdb:2.7.0
-    environment:
-      FERRETDB_POSTGRESQL_URL: postgres://test:test@postgres:5432/postgres
-      FERRETDB_TELEMETRY: disable
-    depends_on:
-      postgres:
-        condition: service_healthy
   tests:
     build:
       context: .
       target: test
     environment:
-      MONGO_URL: mongodb://test:test@ferretdb:27017/
+      GP_TEST_DATABASE_URL: postgresql+psycopg://test:test@postgres:5432/garten_planer_test
     depends_on:
-      - ferretdb
+      postgres:
+        condition: service_healthy

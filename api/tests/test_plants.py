@@ -4,10 +4,11 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
-from pymongo import MongoClient
+from sqlalchemy import Engine, delete, update
+from sqlalchemy.exc import IntegrityError
 
-from garten_planer.config import Config
-from tests.conftest import BASE, MONGO_URL
+from garten_planer.schema import plants, standorte
+from tests.conftest import BASE
 
 H = {"Origin": BASE}
 
@@ -86,12 +87,11 @@ def test_unknown_plant_is_404(client: TestClient, standort: str) -> None:
     assert client.post("/api/plants/nope/archive", headers=H).status_code == 404
 
 
-def test_list_survives_a_dangling_standort(client: TestClient, standort: str, config: Config) -> None:
-    """A Standort deleted while a plant was being saved must not break the list."""
+def test_db_refuses_dangling_references(client: TestClient, standort: str, db: Engine) -> None:
+    """The DB itself guards what the API checks: no race can leave a plant without its Standort,
+    and a plant's Sorte always belongs to its species."""
     p = client.post("/api/plants", json=plant(standort), headers=H).json()
-    with MongoClient(MONGO_URL, serverSelectionTimeoutMS=3000) as c:
-        c[config.db_name].standorte.delete_one({"_id": standort})
-    r = client.get("/api/plants")
-    assert r.status_code == 200
-    assert r.json()[0]["id"] == p["id"]
-    assert r.json()[0]["standort"] == {"id": standort, "name": "(gelöscht)", "light": None}
+    with pytest.raises(IntegrityError, match="fk_plants_standort_id"), db.begin() as c:
+        c.execute(delete(standorte).where(standorte.c.id == standort))
+    with pytest.raises(IntegrityError, match="fk_plants_cultivar_of_species"), db.begin() as c:
+        c.execute(update(plants).where(plants.c.id == p["id"]).values(cultivar_id="prunus-avium:celeste"))

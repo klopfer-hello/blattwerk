@@ -1,41 +1,43 @@
 # garten-planer on the Docker host, behind the existing Traefik. Copied there by
 # scripts/deploy.sh, which writes the image tags, GP_HOST, TRAEFIK_NETWORK and a
 # generated GP_DB_PASSWORD into the host's .env (never committed, never printed).
-# Only the web container is reachable (through Traefik); database and api sit on
-# an internal network without ports and without a route out.
+# Only the web container is reachable (through Traefik); database, migrations and
+# api sit on an internal network without ports and without a route out.
 services:
-  postgres:
-    image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
-    container_name: garten-planer-postgres
+  db:
+    image: postgres:17.10-alpine
+    container_name: garten-planer-db
     restart: unless-stopped
     environment:
       POSTGRES_USER: gartenplaner
       POSTGRES_PASSWORD: ${GP_DB_PASSWORD:?}
-      POSTGRES_DB: postgres
+      POSTGRES_DB: garten_planer
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - db:/var/lib/postgresql/data
     networks: [backend]
+    cap_drop: [ALL]
+    cap_add: [CHOWN, SETUID, SETGID, DAC_OVERRIDE, FOWNER]   # what the entrypoint needs (chown + su-exec)
     security_opt: [no-new-privileges:true]
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "gartenplaner", "-d", "postgres"]
+      test: ["CMD", "pg_isready", "-U", "gartenplaner", "-d", "garten_planer"]
       interval: 10s
       retries: 10
 
-  ferretdb:
-    image: ghcr.io/ferretdb/ferretdb:2.7.0
-    container_name: garten-planer-ferretdb
-    restart: unless-stopped
+  migrate:   # one-shot: Alembic migrations, then exits; the api starts only after it succeeded
+    image: ${GARTEN_PLANER_API_IMAGE:?set by scripts/deploy.sh}
+    pull_policy: never
+    container_name: garten-planer-migrate
+    command: ["python", "-m", "garten_planer.migrate"]
+    restart: "no"
     environment:
-      FERRETDB_POSTGRESQL_URL: postgres://gartenplaner:${GP_DB_PASSWORD:?}@postgres:5432/postgres
-      FERRETDB_TELEMETRY: disable
-      FERRETDB_STATE_DIR: /state
-    tmpfs: ["/state:uid=1000,gid=1000,mode=0700"]   # FerretDB runs as 1000:1000
+      GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
     read_only: true
+    tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend]
     depends_on:
-      postgres:
+      db:
         condition: service_healthy
 
   api:
@@ -44,14 +46,15 @@ services:
     container_name: garten-planer-api
     restart: unless-stopped
     environment:
-      GP_MONGO_URL: mongodb://gartenplaner:${GP_DB_PASSWORD:?}@ferretdb:27017/
-      GP_DB_NAME: garten_planer
+      GP_DATABASE_URL: postgresql+psycopg://gartenplaner:${GP_DB_PASSWORD:?}@db:5432/garten_planer
     read_only: true
     tmpfs: [/tmp]
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     networks: [backend]
-    depends_on: [ferretdb]
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
 
   web:
     image: ${GARTEN_PLANER_WEB_IMAGE:?set by scripts/deploy.sh}
@@ -75,7 +78,7 @@ services:
       - "traefik.http.services.garten-planer.loadbalancer.server.port=8080"
 
 volumes:
-  pgdata:
+  db:
 
 networks:
   backend:
