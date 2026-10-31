@@ -107,9 +107,17 @@ class StandortIn(Strict):
     """F-ST-2. A place in the garden; plants refer to it."""
 
     name: Name60
-    light: Light
+    light: Light | None = None  # outdoors only; indoors the plant's window decides (M11)
     type: StandortType
     notes: Annotated[str, Field(max_length=500)] = ""
+
+    @model_validator(mode="after")
+    def _light(self) -> "StandortIn":
+        if self.type == "zimmer":
+            self.light = None  # a room has no "sonnig": where in the room the plant stands counts
+        elif self.light is None:
+            raise ValueError("light is required outdoors")
+        return self
 
 
 class Standort(StandortIn):

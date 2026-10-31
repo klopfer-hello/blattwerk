@@ -227,7 +227,7 @@ class PlanFacts:
     rootstock: str | None
     planted_year: int | None
     in_container: bool
-    light: str
+    light: str | None
     standort_type: str
     bundesland: str | None
     fertiliser: str
@@ -252,7 +252,6 @@ def build_prompt(f: PlanFacts) -> str:
             "art_latein": f.latin,
             "art_deutsch": f.german,
             "sorte": f.cultivar or "unbekannt",
-            "licht_im_raum": f.light,
             "fenster": f.window or "unbekannt",
             "abstand_zum_fenster": f.window_distance or "unbekannt",
             "topf_cm": f.pot_cm,

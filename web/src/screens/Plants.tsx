@@ -133,7 +133,7 @@ export function PlantDetail({ id }: { id: string }) {
     try { setP(await (p.archived ? api.restorePlant(p.id) : api.archivePlant(p.id))); } catch (e) { setError(fail(e)); } finally { setBusy(false); }
   }
   const facts = p.standort.indoor ? [
-    ['Zimmer', `${p.standort.name} · ${p.standort.light}`],
+    ['Zimmer', p.standort.name],
     ['Fenster', p.window_dir ? (p.window_dir === 'keins' ? 'keins' : `${p.window_dir}${p.window_distance ? `, ${DISTANCES[p.window_distance]}` : ''}`) : '–'],
     ['Topf', p.pot_cm || p.pot_material ? [p.pot_cm ? `${p.pot_cm} cm` : '', p.pot_material ? POT_MATERIALS[p.pot_material] : ''].filter(Boolean).join(' ') : '–'],
     ['Seit', p.planted_year?.toString() ?? '–'],
@@ -606,7 +606,7 @@ function StandortPicker({ standorte, value, onChange, onCreated }: { standorte: 
   async function add() {
     if (busy) return;
     setErr(''); setBusy(true);
-    try { onCreated(await api.createStandort({ name, light, type: inside ? INDOOR_TYPE : 'beet', notes: '' })); setAdding(false); setName(''); }
+    try { onCreated(await api.createStandort({ name, light: inside ? null : light, type: inside ? INDOOR_TYPE : 'beet', notes: '' })); setAdding(false); setName(''); }
     catch (e) { setErr(e instanceof ApiError && e.status === 409 ? 'Diesen Standort gibt es schon.' : e instanceof ApiError && e.status === 422 ? 'Bitte einen Namen (max. 60 Zeichen) eingeben.' : fail(e).message); }
     finally { setBusy(false); }
   }
@@ -621,9 +621,11 @@ function StandortPicker({ standorte, value, onChange, onCreated }: { standorte: 
         <div className="outline stack" style={{ gap: 10 }}>
           <InOut indoor={inside} onChange={setInside} />
           <div className="field"><label htmlFor="sname">Name</label><input id="sname" className="input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder={inside ? 'z. B. Wohnzimmer' : 'z. B. Beet am Zaun'} /></div>
-          <div className="row" role="group" aria-label="Licht">
-            {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={light === l} onClick={() => setLight(l)}>{l}</button>)}
-          </div>
+          {!inside && (
+            <div className="row" role="group" aria-label="Licht">
+              {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={light === l} onClick={() => setLight(l)}>{l}</button>)}
+            </div>
+          )}
           {err && <span className="small" style={{ color: 'var(--urgent)' }}>{err}</span>}
           <button className="btn" onClick={add} disabled={busy}>{busy ? 'Legt an …' : 'Standort anlegen'}</button>
           <span className="tiny">Art und Notizen später unter Mehr → Standorte.</span>
@@ -667,24 +669,28 @@ export function Standorte() {
 
 function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void }) {
   const [v, setV] = useState({ name: s?.name ?? '', light: s?.light ?? ('sonnig' as Light), type: s?.type ?? ('beet' as Standort['type']), notes: s?.notes ?? '' });
+  const inside = v.type === INDOOR_TYPE;
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
   async function save() {
     if (busy) return;
     setErr(''); setBusy(true);
-    try { if (s) await api.updateStandort(s.id, v); else await api.createStandort(v); onDone(); }
+    const body = { ...v, light: inside ? null : v.light };
+    try { if (s) await api.updateStandort(s.id, body); else await api.createStandort(body); onDone(); }
     catch (e) { setErr(e instanceof ApiError && e.status === 409 ? (e.message.includes('indoor') ? 'Mit Pflanzen kann ein Standort nicht zwischen drinnen und draußen wechseln.' : 'Diesen Namen gibt es schon.') : e instanceof ApiError && e.status === 422 ? 'Bitte Eingaben prüfen (Name 1–60 Zeichen).' : fail(e).message); }
     finally { setBusy(false); }
   }
   return (
     <div className="outline stack" style={{ gap: 12 }}>
       <div className="field"><label htmlFor="sn">Name</label><input id="sn" className="input" maxLength={60} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></div>
-      <div className="row" role="group" aria-label="Licht">
-        {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={v.light === l} onClick={() => setV({ ...v, light: l })}>{l}</button>)}
-      </div>
-      <InOut indoor={v.type === INDOOR_TYPE} onChange={(inside) => setV({ ...v, type: inside ? INDOOR_TYPE : 'beet' })} />
+      <InOut indoor={inside} onChange={(i) => setV({ ...v, type: i ? INDOOR_TYPE : 'beet', light: v.light ?? 'sonnig' })} />
+      {!inside && (
+        <div className="row" role="group" aria-label="Licht">
+          {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={v.light === l} onClick={() => setV({ ...v, light: l })}>{l}</button>)}
+        </div>
+      )}
       {v.type === INDOOR_TYPE
-        ? <span className="small muted">Ein Zimmer: Pflanzen hier bekommen Gieß-Erinnerungen, aber keine Frost- und Wetterwarnungen.</span>
+        ? <span className="small muted">Ein Zimmer: Pflanzen hier bekommen Gieß-Erinnerungen, aber keine Frost- und Wetterwarnungen. Wie hell es ist, gibst du bei jeder Pflanze an (Fenster und Abstand).</span>
         : (
           <div className="field"><label htmlFor="st">Art</label>
             <select id="st" className="input" value={v.type} onChange={(e) => setV({ ...v, type: e.target.value as Standort['type'] })}>

@@ -99,12 +99,13 @@ standorte = Table(
     Column("id", Text, primary_key=True),
     Column("name", Text, nullable=False),
     Column("name_key", Text, nullable=False, unique=True),
-    Column("light", Text, nullable=False),
+    Column("light", Text),  # outdoors only; indoors the window on the plant counts (M11)
     Column("type", Text, nullable=False),
     Column("notes", Text, nullable=False),
     Column("created_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(_in("light", LIGHT), name="light"),
     CheckConstraint(_in("type", STANDORT_TYPE), name="type"),
+    CheckConstraint("(type = 'zimmer') = (light IS NULL)", name="light_outdoors"),
 )
 
 plants = Table(

@@ -30,7 +30,8 @@ def on(client: TestClient, day: date) -> None:
 
 
 def standort(client: TestClient, typ: str, name: str) -> str:
-    r = client.post("/api/standorte", json={"name": name, "light": "halbschattig", "type": typ}, headers=H)
+    light = None if typ == "zimmer" else "halbschattig"
+    r = client.post("/api/standorte", json={"name": name, "light": light, "type": typ}, headers=H)
     assert r.status_code == 201, r.text
     return str(r.json()["id"])
 
@@ -61,6 +62,12 @@ def test_indoor_plant_keeps_window_and_pot(client: TestClient) -> None:
     assert got["standort"]["indoor"] is True
 
 
+def test_a_room_has_no_light_outdoors_needs_it(client: TestClient) -> None:
+    r = client.post("/api/standorte", json={"name": "Bad", "light": "sonnig", "type": "zimmer"}, headers=H)
+    assert r.status_code == 201 and r.json()["light"] is None  # ignored: the window on the plant counts
+    assert client.post("/api/standorte", json={"name": "Beet", "type": "beet"}, headers=H).status_code == 422
+
+
 def test_window_and_pot_only_indoors(client: TestClient) -> None:
     sid = standort(client, "beet", "Beet")
     r = client.post("/api/plants", json={"species_id": "malus-domestica", "standort_id": sid, **INDOOR}, headers=H)
@@ -72,7 +79,7 @@ def test_standort_cannot_switch_inside_out_with_plants(client: TestClient) -> No
     plant(client, sid)
     r = client.put(f"/api/standorte/{sid}", json={"name": "Büro", "light": "sonnig", "type": "beet"}, headers=H)
     assert r.status_code == 409
-    ok = client.put(f"/api/standorte/{sid}", json={"name": "Arbeitszimmer", "light": "sonnig", "type": "zimmer"},
+    ok = client.put(f"/api/standorte/{sid}", json={"name": "Arbeitszimmer", "type": "zimmer"},
                     headers=H)  # fmt: skip
     assert ok.status_code == 200
 
@@ -273,7 +280,7 @@ def test_indoor_plan_keeps_watering_garden_plan_drops_it() -> None:
 
 def test_indoor_prompt_has_window_and_pot() -> None:
     f = plan.PlanFacts(latin="Beaucarnea recurvata", german="Elefantenfuß", cultivar=None, form=None, rootstock=None,
-                       planted_year=None, in_container=True, light="sonnig", standort_type="zimmer", bundesland=None,
+                       planted_year=None, in_container=True, light=None, standort_type="zimmer", bundesland=None,
                        fertiliser="egal", eco_defaults=True, window="S", window_distance="bis_1m", pot_cm=18,
                        pot_material="ton")  # fmt: skip
     prompt = plan.build_prompt(f)

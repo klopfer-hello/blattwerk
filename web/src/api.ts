@@ -55,7 +55,7 @@ export const INDOOR_TYPE = 'zimmer';  // the one indoor type (M11): watering yes
 export const WINDOWS = { N: 'N', O: 'O', S: 'S', W: 'W', keins: 'keins' } as const;
 export const DISTANCES = { fensterbank: 'Fensterbank', bis_1m: 'bis 1 m', '1_2m': '1–2 m', raum: 'Raummitte' } as const;
 export const POT_MATERIALS = { kunststoff: 'Kunststoff', ton: 'Ton', keramik: 'Keramik', glas: 'Glas' } as const;
-export interface StandortIn { name: string; light: Light; type: StandortType; notes: string }
+export interface StandortIn { name: string; light: Light | null; type: StandortType; notes: string }  // light: outdoors only
 export interface Standort extends StandortIn { id: string; plant_count: number }
 
 export const FORMS = ['Säule', 'Halbstamm', 'Hochstamm', 'Busch', 'Spindel', 'Spalier', 'Strauch', 'Hecke', 'Solitär', 'Kübel', 'Kletterer', 'Horst', 'Knolle'] as const;
