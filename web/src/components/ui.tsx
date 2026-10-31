@@ -53,7 +53,7 @@ const TABS = [
   { key: 'pflanzen', label: 'Pflanzen', icon: 'plant' },
   { key: 'fragen', label: 'Fragen', icon: 'chat' },
 ];
-const SECTION: Record<string, string> = { heute: 'heute', warnung: 'heute', aufgabe: 'heute', kalender: 'kalender', pflanzen: 'pflanzen', pflanze: 'pflanzen', neu: 'pflanzen', fragen: 'fragen', wetter: 'wetter' };
+const SECTION: Record<string, string> = { heute: 'heute', warnung: 'heute', aufgabe: 'heute', kalender: 'kalender', pflanzen: 'pflanzen', pflanze: 'pflanzen', neu: 'pflanzen', fragen: 'fragen', wetter: 'wetter', einstellungen: 'wetter' };
 
 export function Nav({ route, urgent }: { route: string; urgent: number }) {
   const current = SECTION[route] ?? 'heute';

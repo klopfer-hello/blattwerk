@@ -9,6 +9,7 @@ import { Task } from './screens/Task';
 import { Calendar } from './screens/Calendar';
 import { AddPlant, PlantDetail, Plants } from './screens/Plants';
 import { Chat, Weather } from './screens/More';
+import { Settings } from './screens/Settings';
 
 export interface TodoState {
   list: Todo[];
@@ -59,6 +60,7 @@ export function App() {
       case 'neu': return <AddPlant />;
       case 'fragen': return <Chat state={state} />;
       case 'wetter': return <Weather />;
+      case 'einstellungen': return <Settings />;
       default: return <Today state={state} />;
     }
   })();

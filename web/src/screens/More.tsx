@@ -1,4 +1,6 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { api, type GardenSettings } from '../api';
+import { FERTILISER } from './Settings';
 import { CHAT_TODO, NIGHTS, SEASON, SEASONS, SENSORS } from '../mock/data';
 import { Back, Icon } from '../components/ui';
 import type { TodoState } from '../App';
@@ -49,8 +51,17 @@ export function Chat({ state }: { state: TodoState }) {
 }
 
 export function Weather() {
-  const [push, setPush] = useState(true);
-  const settings = [['Ort', 'Musterstadt, 00000'], ['Bundesland', 'Musterland'], ['Baumschutzsatzung', 'ab 80 cm Umfang'], ['Standorte', '8'], ['Dünger', 'gemischt, lokale Läden']];
+  const [s, setS] = useState<GardenSettings | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => { api.settings().then(setS, () => setFailed(true)); }, []);
+  const place = s && [s.location.plz, s.location.ort].filter(Boolean).join(' ');
+  const settings = s && [
+    ['Ort', place || 'noch nicht gesetzt'],
+    ['Bundesland', s.location.bundesland ?? 'noch nicht gesetzt'],
+    ['Baumschutzsatzung', s.legal.baumschutz_girth_cm ? `ab ${s.legal.baumschutz_girth_cm} cm Umfang` : 'keine'],
+    ['Dünger', FERTILISER[s.preferences.fertiliser]],
+    ['Push bei Wetter-Warnungen', s.notifications.weather_push ? 'an' : 'aus'],
+  ];
   return (
     <div className="page">
       <Back href="#/heute" label="Heute" />
@@ -90,11 +101,11 @@ export function Weather() {
 
       <section className="stack" style={{ gap: 0, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <h2 style={{ fontSize: 20, marginBottom: 6 }}>Einstellungen</h2>
-        {settings.map(([k, v]) => <div key={k} className="setrow"><span>{k}</span><span className="muted">{v} ›</span></div>)}
-        <div className="setrow" style={{ borderBottom: 0 }}>
-          <span id="push-label">Push bei Wetter-Warnungen</span>
-          <button className="switch" role="switch" aria-checked={push} aria-labelledby="push-label" onClick={() => setPush(!push)}><span /></button>
-        </div>
+        {failed && <p className="box">Einstellungen konnten nicht geladen werden.</p>}
+        {settings?.map(([k, v]) => (
+          <a key={k} href="#/einstellungen" className="setrow" style={{ textDecoration: 'none', color: 'var(--ink)' }}><span>{k}</span><span className="muted">{v} ›</span></a>
+        ))}
+        <a href="#/einstellungen" className="btn" style={{ marginTop: 12 }}>Einstellungen bearbeiten</a>
       </section>
     </div>
   );

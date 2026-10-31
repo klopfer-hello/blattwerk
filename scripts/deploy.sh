@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
-# Build the garten-planer image on this PC, ship it to the Docker host over
-# SSH and switch the container there. A failed switch (compose error, container
-# not healthy, wrong version answering) rolls back to the previous image.
-# Host facts come only from the gitignored scripts/deploy.local.env.
-#   scripts/deploy.sh                  build HEAD + ship + switch
-#   scripts/deploy.sh --allow-dirty    deploy uncommitted changes (version +sha.dirty)
-#   scripts/deploy.sh --image <tag>    switch back to an image already on the host
+# Build the garten-planer images (web + api) on this PC, ship them to the Docker
+# host over SSH and switch the stack there. A failed switch (compose error, a
+# container not healthy, wrong image running) rolls back to the previous images.
+# Host facts come only from the gitignored scripts/deploy.local.env. The DB
+# password is generated ON the host into its .env and never leaves it.
+#   scripts/deploy.sh                    test, build HEAD, ship, switch
+#   scripts/deploy.sh --allow-dirty      deploy uncommitted changes (+sha.dirty.<time>)
+#   scripts/deploy.sh --version <tag>    switch back to images already on the host (e.g. 0.2.0-beta.1-<sha>)
+# Before a deploy with a DB schema change: make a backup first (ticket 011).
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1
@@ -15,77 +17,107 @@ export MSYS_NO_PATHCONV=1
 source scripts/deploy.local.env
 : "${DEPLOY_HOST:?}" "${DEPLOY_DIR:?}" "${GP_HOST:?}" "${TRAEFIK_NETWORK:?}"
 
-image='' dirty=false
+tag='' dirty=false
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --image) image=$2; shift 2 ;;
+    --version) tag=$2; shift 2 ;;
     --allow-dirty) dirty=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
 done
 ssh_() { ssh -o BatchMode=yes "$DEPLOY_HOST" "$@"; }
 
-if [[ -z $image ]]; then
+if [[ -z $tag ]]; then
   sha=$(git rev-parse --short=12 HEAD)
   if [[ -n "$(git status --porcelain)" ]]; then
     $dirty || { echo "working tree is dirty: commit first or pass --allow-dirty" >&2; exit 1; }
     sha="${sha}.dirty.$(date +%H%M%S)"
   fi
-  version="$(sed -n 's/.*"version": *"\([^"]*\)".*/\1/p' web/package.json)+${sha}"
-  image="garten-planer-web:${version//+/-}"
-  echo "==> building ${image}"
-  docker build -q -t "$image" --build-arg VERSION="$version" web >/dev/null
-  if ssh_ docker image inspect "$image" >/dev/null 2>&1; then
-    echo "==> image already on the host"
-  else
-    echo "==> shipping"
-    docker save "$image" | ssh_ docker load >/dev/null
-  fi
+  version="$(tr -d '[:space:]' < VERSION)+${sha}"
+  tag=${version//+/-}
+  echo "==> tests"
+  bash scripts/test.sh >/dev/null 2>&1 || { echo "tests failed: run scripts/test.sh" >&2; exit 1; }
+  echo "==> building ${tag}"
+  docker build -q -t "garten-planer-web:$tag" --build-arg VERSION="$version" web >/dev/null
+  docker build -q -t "garten-planer-api:$tag" --target runtime --build-arg VERSION="$version" api >/dev/null
+  for img in "garten-planer-web:$tag" "garten-planer-api:$tag"; do
+    if ssh_ docker image inspect "$img" >/dev/null 2>&1; then
+      echo "    $img already on the host"
+    else
+      echo "==> shipping $img"
+      docker save "$img" | ssh_ docker load >/dev/null
+    fi
+  done
 else
-  version=$(ssh_ docker run --rm --entrypoint cat "$image" /usr/share/nginx/html/version.txt)
+  version=$(ssh_ docker run --rm --entrypoint cat "garten-planer-web:$tag" /usr/share/nginx/html/version.txt)
 fi
 
-echo "==> switching to ${image}"
+echo "==> switching to ${tag}"
 ssh_ "mkdir -p '$DEPLOY_DIR'"
 scp -q deploy/docker-compose.yml "$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.yml"
-ssh_ bash -s -- "$DEPLOY_DIR" "$image" "$GP_HOST" "$TRAEFIK_NETWORK" <<'REMOTE'
+ssh_ bash -s -- "$DEPLOY_DIR" "$tag" "$GP_HOST" "$TRAEFIK_NETWORK" <<'REMOTE'
 set -euo pipefail
-cd "$1"; image=$2
+cd "$1"; tag=$2
 touch .env && chmod 600 .env
-prev=$(sed -n 's/^GARTEN_PLANER_IMAGE=//p' .env)
-setenv() { { grep -v "^$1=" .env || true; echo "$1=$2"; } > .env.new && chmod 600 .env.new && mv .env.new .env; }
-setenv GP_HOST "$3"; setenv TRAEFIK_NETWORK "$4"; setenv GARTEN_PLANER_IMAGE "$image"
-healthy() {
-  for _ in $(seq 1 30); do                      # up to 60 s
-    case $(docker inspect -f '{{.State.Health.Status}}' garten-planer-web 2>/dev/null || echo missing) in
-      healthy) return 0 ;;
-      unhealthy) return 1 ;;
-    esac
+get() { sed -n "s/^$1=//p" .env; }
+setenv() {   # set KEY=value, or remove KEY when value is empty
+  { grep -v "^$1=" .env || true; if [[ -n $2 ]]; then echo "$1=$2"; fi; } > .env.new
+  chmod 600 .env.new && mv .env.new .env
+}
+prev_web=$(get GARTEN_PLANER_WEB_IMAGE); prev_api=$(get GARTEN_PLANER_API_IMAGE)
+[[ -z $prev_web ]] && prev_web=$(get GARTEN_PLANER_IMAGE)       # 0.1.x used one image variable
+setenv GARTEN_PLANER_IMAGE ''
+[[ -n $(get GP_DB_PASSWORD) ]] || setenv GP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+setenv GP_HOST "$3"; setenv TRAEFIK_NETWORK "$4"
+setenv GARTEN_PLANER_WEB_IMAGE "garten-planer-web:$tag"; setenv GARTEN_PLANER_API_IMAGE "garten-planer-api:$tag"
+
+healthy() {   # every container with a healthcheck healthy, within 90 s
+  for _ in $(seq 1 45); do
+    ok=true
+    for c in garten-planer-postgres garten-planer-api garten-planer-web; do
+      case $(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing) in
+        healthy) ;;
+        unhealthy) return 1 ;;
+        *) ok=false ;;
+      esac
+    done
+    $ok && return 0
     sleep 2
   done
   return 1
 }
-if docker compose up -d --remove-orphans >/dev/null 2>&1 && healthy && \
-   [[ $(docker inspect -f '{{.Config.Image}}' garten-planer-web) == "$image" ]]; then
-  echo "current: $image (previous: ${prev:-none})"
+running() { [[ $(docker inspect -f '{{.Config.Image}}' "$1" 2>/dev/null) == "$2" ]]; }
+
+if docker compose up -d --remove-orphans >/dev/null 2>&1 && healthy \
+   && running garten-planer-web "garten-planer-web:$tag" && running garten-planer-api "garten-planer-api:$tag"; then
+  echo "current: $tag (previous web: ${prev_web:-none}, api: ${prev_api:-none})"
   exit 0
 fi
 echo "switch FAILED" >&2
-docker logs --tail 20 garten-planer-web >&2 || true
-if [[ -n $prev && $prev != "$image" ]]; then
-  setenv GARTEN_PLANER_IMAGE "$prev"; docker compose up -d >/dev/null 2>&1 || true
-  echo "ROLLED BACK to $prev" >&2
+for c in garten-planer-api garten-planer-web garten-planer-ferretdb; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
+if [[ -n $prev_web && -n $prev_api ]]; then
+  setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"; setenv GARTEN_PLANER_API_IMAGE "$prev_api"
+  docker compose up -d >/dev/null 2>&1 || true
+  echo "ROLLED BACK to $prev_web / $prev_api" >&2
+elif [[ -n $prev_web ]]; then   # first deploy with a backend: back to the web-only prototype
+  docker compose stop api ferretdb postgres >/dev/null 2>&1 || true
+  setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"
+  docker compose up -d --no-deps web >/dev/null 2>&1 || true
+  echo "ROLLED BACK to $prev_web (backend stopped)" >&2
 fi
 exit 1
 REMOTE
 
-echo "==> checking https://${GP_HOST}/healthz"
-got=$(curl -sk --max-time 10 "https://${GP_HOST}/healthz" || true)
-if [[ $got != "$version" ]]; then
-  echo "healthz answers '${got}', expected '${version}'" >&2
+echo "==> checking https://${GP_HOST}"
+web=$(curl -sk --max-time 10 "https://${GP_HOST}/healthz" || true)
+apih=$(curl -sk --max-time 10 "https://${GP_HOST}/api/healthz" || true)
+if [[ $web != "$version" || $apih != *"\"version\":\"$version\""* || $apih != *'"db":"ok"'* ]]; then
+  echo "unexpected answers: web '${web}', api '${apih}'" >&2
   exit 1
 fi
-echo "healthz: ${got}"
-# Keep the 3 newest local images.
-docker image ls garten-planer-web --format '{{.Tag}}' | grep -v '^test$' | tail -n +4 | xargs -r -I{} docker image rm -f "garten-planer-web:{}" >/dev/null
-echo "rollback: scripts/deploy.sh --image <previous tag>"
+echo "web:  ${web}"
+echo "api:  ${apih}"
+for repo in garten-planer-web garten-planer-api; do   # keep the 3 newest local images
+  docker image ls "$repo" --format '{{.Tag}}' | grep -v '^test$' | tail -n +4 | xargs -r -I{} docker image rm -f "$repo:{}" >/dev/null
+done
+echo "rollback: scripts/deploy.sh --version <previous tag>"
