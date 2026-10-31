@@ -120,7 +120,7 @@ PLANTS = [
 # the F-PL-1 cases: (typed, Latin starts with, Sorte contains, form)
 NAMES = [
     ("Prunus AV. Celeste Säule", "Prunus avium", "celeste", "Säule"),
-    ("Malus Rapsodi R Säule", "Malus", "rhapsodie", "Säule"),
+    ("Malus Rapsodi R Säule", "Malus", "rhapsodi", "Säule"),  # offline resolver: seed "Rhapsodie"
     ("Säulenapfel Sonate", "Malus", "sonate", "Säule"),
     ("Felsenbrine Obelisk", "Amelanchier", "obelisk", None),
     ("Rambler Rose Ghislaine DE Feligonde", "Rosa", "ghislaine de feligonde", None),
