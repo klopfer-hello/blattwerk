@@ -56,7 +56,7 @@ export function Calendar() {
         {months && entries.length === 0 && <p className="box">In diesem Monat ist nichts geplant.</p>}
         {entries.map((e) => (
           <a key={e.task_id} href={`#/aufgabe-bearbeiten/${e.task_id}`} className="card stack" style={{ gap: 6, textDecoration: 'none', color: 'var(--ink)' }}>
-            <TaskChip category={e.category} />
+            <span className="row" style={{ gap: 6 }}><TaskChip category={e.category} />{e.moved && <span className="small" style={{ color: 'var(--legal)', fontWeight: 700 }}>§ wegen Vogelschutzzeit hierher verschoben</span>}</span>
             <strong style={{ fontSize: 17, lineHeight: 1.3 }}>{e.title}</strong>
             <span className="small muted">{e.plant ? e.plant.title : 'Ganzer Garten'}</span>
           </a>

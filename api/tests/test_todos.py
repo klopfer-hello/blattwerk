@@ -122,7 +122,7 @@ def test_changing_the_window_replaces_open_but_keeps_done(client: TestClient) ->
     client.post(f"/api/todos/{todo['id']}/done", json={}, headers=H)
     on(client, date(2027, 1, 10))
     body = {**t, "month_from": 1, "month_to": 1}
-    for k in ("id", "plant", "enabled", "source"):
+    for k in ("id", "plant", "enabled", "source", "notes"):
         body.pop(k)
     assert client.put(f"/api/tasks/{t['id']}", json=body, headers=H).status_code == 200
     h = heute(client)
@@ -169,7 +169,15 @@ def test_list_tasks_of_a_plant(client: TestClient, plant_id: str) -> None:
     ],
 )
 def test_validation(client: TestClient, bad: dict[str, Any]) -> None:
-    body = {"title": "T", "category": "schnitt", "recurrence": "yearly", "month_from": 2, "month_to": 2, **bad}
+    body = {
+        "title": "T",
+        "category": "schnitt",
+        "cut_type": "pflege",
+        "recurrence": "yearly",
+        "month_from": 2,
+        "month_to": 2,
+        **bad,
+    }
     assert client.post("/api/tasks", json=body, headers=H).status_code == 422
 
 
@@ -188,7 +196,7 @@ def interval_task(client: TestClient, plant_id: str | None = None, days: int = 7
 
 
 def edit_task(client: TestClient, t: dict[str, Any], **changes: Any) -> dict[str, Any]:
-    body = {k: v for k, v in t.items() if k not in ("id", "plant", "enabled", "source")} | changes
+    body = {k: v for k, v in t.items() if k not in ("id", "plant", "enabled", "source", "notes")} | changes
     r = client.put(f"/api/tasks/{t['id']}", json=body, headers=H)
     assert r.status_code == 200, r.text
     return dict(r.json())
@@ -268,7 +276,7 @@ def test_only_the_newest_open_occurrence_per_task(client: TestClient) -> None:
 @pytest.mark.parametrize("field", ["due_date", "start_date"])
 def test_dates_are_bounded(client: TestClient, field: str) -> None:
     rec = "once" if field == "due_date" else "interval"
-    body = {"title": "T", "category": "schnitt", "recurrence": rec, "interval_days": 1, field: "0001-01-01"}
+    body = {"title": "T", "category": "duengen", "recurrence": rec, "interval_days": 1, field: "0001-01-01"}
     assert client.post("/api/tasks", json=body, headers=H).status_code == 422
 
 

@@ -26,9 +26,18 @@ from sqlalchemy.ext.asyncio import AsyncConnection
 from garten_planer.catalog import ready
 from garten_planer.db import Conn
 from garten_planer.errors import ApiError, invalid, not_found
-from garten_planer.models import NoteIn, PostponeIn, Task, TaskIn
-from garten_planer.schedule import HORIZON_DAYS, TaskTiming, interval_after, months_in_year, occurrences
-from garten_planer.schema import cultivars, plants, species, tasks, todos
+from garten_planer.legal import (
+    LegalSettings,
+    PlantFacts,
+    adjust_window,
+    allowed_months,
+    blocked_until,
+    is_fruit_tree,
+    notes,
+)
+from garten_planer.models import GardenSettings, NoteIn, PostponeIn, Task, TaskIn, known_fields
+from garten_planer.schedule import HORIZON_DAYS, Occurrence, TaskTiming, interval_after, months_in_year, occurrences
+from garten_planer.schema import cultivars, plants, settings, species, tasks, todos
 
 router = APIRouter(dependencies=[Depends(ready)])
 TZ = ZoneInfo("Europe/Berlin")
@@ -61,28 +70,83 @@ _plant_join = (
 _active = or_(tasks.c.plant_id.is_(None), plants.c.archived_at.is_(None))  # plant not archived
 
 
+# Plant facts the legal rules need (legal.py), selected next to every task.
+FACTS = (
+    species.c.woody.label("sp_woody"),
+    species.c.growth.label("sp_growth"),
+    species.c.latin.label("sp_latin"),
+    plants.c.girth_cm.label("pl_girth"),
+)
+
+
 def _timing(r: Any) -> TaskTiming:
     return TaskTiming(**{k: getattr(r, k) for k in TIMING})
 
 
-def _task_out(r: Row[Any]) -> Task:
+def _facts(r: Any) -> PlantFacts | None:
+    if not r.plant_id:
+        return None
+    return PlantFacts(r.sp_woody, r.sp_growth, is_fruit_tree(r.sp_latin, r.sp_growth), r.pl_girth)
+
+
+async def legal_settings(c: AsyncConnection) -> LegalSettings:
+    data = (await c.execute(select(settings.c.data).where(settings.c.id == 1))).scalar()
+    g = GardenSettings.model_validate(known_fields(GardenSettings, data or {}))
+    return LegalSettings(
+        g.location.bundesland, g.legal.baumschutz_girth_cm, g.legal.fruit_trees_exempt, g.preferences.eco_defaults
+    )
+
+
+def _notes(r: Any, s: LegalSettings, months: list[int]) -> list[dict[str, str]]:
+    return [n.__dict__ for n in notes(r.category, r.cut_type, _facts(r), s, frozenset(months))]
+
+
+def _months_between(a: date, b: date) -> list[int]:
+    out: list[int] = []
+    y, m = a.year, a.month
+    while (y, m) <= (b.year, b.month) and len(out) < 12:
+        out.append(m)
+        y, m = (y + 1, 1) if m == 12 else (y, m + 1)
+    return out
+
+
+def _adjuster(r: Any, s: LegalSettings) -> Any:
+    def adjust(a: date, b: date) -> tuple[date, date, str]:
+        adj = adjust_window(r.category, r.cut_type, _facts(r), s, a, b)
+        return adj.due_from, adj.due_to, adj.reason
+
+    return adjust
+
+
+def _task_out(r: Row[Any], s: LegalSettings, day: date) -> Task:
     fields = {k: getattr(r, k) for k in TaskIn.model_fields}
     plant = {"id": r.plant_id, "title": r.plant_title} if r.plant_id else None
-    return Task(**fields, id=r.id, plant=plant, source=r.source, enabled=r.enabled)
+    return Task(
+        **fields,
+        id=r.id,
+        plant=plant,
+        source=r.source,
+        enabled=r.enabled,
+        notes=_notes(r, s, months_in_year(_timing(r), day.year)),
+    )
 
 
-def _todo_out(r: Row[Any], day: date) -> dict[str, Any]:
+def _todo_out(r: Row[Any], day: date, s: LegalSettings) -> dict[str, Any]:
+    blocked = blocked_until(r.category, r.cut_type, _facts(r), s, day) if r.status == "open" else None
     return {
         "id": r.todo_id,
         "status": r.status,
         "due_from": r.due_from,
         "due_to": r.due_to,
-        "overdue": r.status == "open" and r.due_to < day,
+        "overdue": r.status == "open" and r.due_to < day and blocked is None,
+        "blocked_until": blocked,  # a strong cut that is not allowed today (§ 39): not "overdue"
         "postponed": r.postponed,
         "note": r.note,
         "done_at": r.done_at,
         "task": {k: getattr(r, k) for k in ("id", "title", "category", "urgent", "instructions", "recurrence")},
         "plant": {"id": r.plant_id, "title": r.plant_title} if r.plant_id else None,
+        "legal_adjustment": r.legal_adjustment,
+        "notes": _notes(r, s, _months_between(r.due_from, r.due_to)),
     }
 
 
@@ -94,15 +158,22 @@ _todo_query = select(
     todos.c.postponed,
     todos.c.note,
     todos.c.done_at,
+    todos.c.legal_adjustment,
     tasks,
     _plant_title,
+    *FACTS,
 ).select_from(_plant_join.join(todos, todos.c.task_id == tasks.c.id))
 
 
 async def materialize(c: AsyncConnection, day: date, task_ids: list[str] | None = None) -> None:
     """Create the occurrences that should exist on `day` (idempotent). Task rows are
     share-locked, so a concurrent timing change cannot interleave with this."""
-    q = select(tasks).select_from(_plant_join).where(tasks.c.enabled, _active).with_for_update(read=True, of=tasks)
+    q = (
+        select(tasks, *FACTS)
+        .select_from(_plant_join)
+        .where(tasks.c.enabled, _active)
+        .with_for_update(read=True, of=tasks)
+    )
     if task_ids is not None:
         q = q.where(tasks.c.id.in_(task_ids))
     rows = (await c.execute(q)).all()
@@ -128,16 +199,21 @@ async def materialize(c: AsyncConnection, day: date, task_ids: list[str] | None 
             )
         }
     stamp = datetime.now(UTC)  # record keeping only; due dates come from `day`
+    s = await legal_settings(c)
     values = []
     for r in rows:
+        adjust = _adjuster(r, s)  # the legal rules move or shorten windows before anything is stored
         if r.recurrence != "interval":
-            found = occurrences(_timing(r), day)
+            found = occurrences(_timing(r), day, adjust)
         elif r.id in open_now:
             found = []
         else:
             last = last_closed.get(r.id)
             after_last = interval_after(last.astimezone(TZ).date(), r.interval_days) if last else None
-            first = occurrences(_timing(r), day)  # start_date or today
+            if after_last is not None:
+                a, b, why = adjust(after_last.due_from, after_last.due_to)
+                after_last = Occurrence(after_last.period, a, b, why)
+            first = occurrences(_timing(r), day, adjust)  # start_date or today
             use_start = after_last is None or (r.start_date is not None and r.start_date > after_last.due_from)
             found = first if use_start else [after_last] if after_last else []
             found = [o for o in found if o.due_from <= day + timedelta(days=HORIZON_DAYS)]
@@ -152,6 +228,7 @@ async def materialize(c: AsyncConnection, day: date, task_ids: list[str] | None 
                 "status": "open",
                 "note": "",
                 "postponed": False,
+                "legal_adjustment": o.reason or None,
                 "created_at": stamp,
             }
             for o in found
@@ -165,27 +242,29 @@ async def _check_plant(c: AsyncConnection, body: TaskIn) -> None:
         raise invalid("plant_id", "unknown plant")
 
 
-async def _one_task(c: AsyncConnection, tid: str) -> Task:
-    row = (await c.execute(select(tasks, _plant_title).select_from(_plant_join).where(tasks.c.id == tid))).first()
+async def _one_task(c: AsyncConnection, tid: str, day: date) -> Task:
+    q = select(tasks, _plant_title, *FACTS).select_from(_plant_join).where(tasks.c.id == tid)
+    row = (await c.execute(q)).first()
     if row is None:
         raise not_found("task")
-    return _task_out(row)
+    return _task_out(row, await legal_settings(c), day)
 
 
 # ----- tasks ---------------------------------------------------------------
 
 
 @router.get("/tasks")
-async def list_tasks(c: Conn, plant_id: Annotated[str | None, Query(max_length=120)] = None) -> list[Task]:
-    q = select(tasks, _plant_title).select_from(_plant_join).order_by(tasks.c.title)
+async def list_tasks(c: Conn, day: Today, plant_id: Annotated[str | None, Query(max_length=120)] = None) -> list[Task]:
+    q = select(tasks, _plant_title, *FACTS).select_from(_plant_join).order_by(tasks.c.title)
     if plant_id:
         q = q.where(tasks.c.plant_id == plant_id)
-    return [_task_out(r) for r in await c.execute(q)]
+    s = await legal_settings(c)
+    return [_task_out(r, s, day) for r in await c.execute(q)]
 
 
 @router.get("/tasks/{tid}")
-async def read_task(tid: str, c: Conn) -> Task:
-    return await _one_task(c, tid)
+async def read_task(tid: str, c: Conn, day: Today) -> Task:
+    return await _one_task(c, tid, day)
 
 
 @router.post("/tasks", status_code=201)
@@ -203,7 +282,7 @@ async def create_task(body: TaskIn, c: Conn, day: Today) -> Task:
     }
     await c.execute(insert(tasks).values(values))
     await materialize(c, day, [tid])
-    return await _one_task(c, tid)
+    return await _one_task(c, tid, day)
 
 
 @router.put("/tasks/{tid}")
@@ -213,12 +292,15 @@ async def update_task(tid: str, body: TaskIn, c: Conn, day: Today) -> Task:
         raise not_found("task")
     await _check_plant(c, body)
     values: dict[str, Any] = body.model_dump() | {"updated_at": datetime.now(UTC)}
-    if _timing(old) != _timing(body):  # new generation: history stays, open ones are replaced
+    rule_fields = ("category", "cut_type", "plant_id")  # the legal rules depend on these (review M4)
+    if _timing(old) != _timing(body) or any(
+        getattr(old, f) != getattr(body, f) for f in rule_fields
+    ):  # new generation: history stays, open ones are replaced
         values["generation"] = old.generation + 1
         await c.execute(delete(todos).where(todos.c.task_id == tid, todos.c.status == "open"))
     await c.execute(update(tasks).where(tasks.c.id == tid).values(values))
     await materialize(c, day, [tid])
-    return await _one_task(c, tid)
+    return await _one_task(c, tid, day)
 
 
 async def _set_enabled(c: AsyncConnection, tid: str, enabled: bool, day: date) -> Task:
@@ -228,7 +310,7 @@ async def _set_enabled(c: AsyncConnection, tid: str, enabled: bool, day: date) -
         await materialize(c, day, [tid])
     else:  # only open ones go; done/skipped history stays
         await c.execute(delete(todos).where(todos.c.task_id == tid, todos.c.status == "open"))
-    return await _one_task(c, tid)
+    return await _one_task(c, tid, day)
 
 
 @router.post("/tasks/{tid}/disable")
@@ -274,11 +356,12 @@ async def heute(c: Conn, day: Today) -> dict[str, Any]:
             todos.c.done_at.desc()
         )
     )
+    s = await legal_settings(c)
     return {
         "year": day.year,
         "month": day.month,
-        "open": [_todo_out(r, day) for r in open_list],
-        "done": [_todo_out(r, day) for r in done_rows],
+        "open": [_todo_out(r, day, s) for r in open_list],
+        "done": [_todo_out(r, day, s) for r in done_rows],
     }
 
 
@@ -286,7 +369,7 @@ async def _todo(c: AsyncConnection, todo_id: str, day: date) -> dict[str, Any]:
     row = (await c.execute(_todo_query.where(todos.c.id == todo_id))).first()
     if row is None:
         raise not_found("to-do")
-    return _todo_out(row, day)
+    return _todo_out(row, day, await legal_settings(c))
 
 
 @router.get("/todos/{todo_id}")
@@ -348,6 +431,17 @@ async def undo(todo_id: str, c: Conn, day: Today) -> dict[str, Any]:
 async def postpone(todo_id: str, body: PostponeIn, c: Conn, day: Today) -> dict[str, Any]:
     if body.to <= day:
         raise invalid("to", "must be after today")
+    task = (
+        await c.execute(
+            select(tasks, *FACTS)
+            .select_from(_plant_join.join(todos, todos.c.task_id == tasks.c.id))
+            .where(todos.c.id == todo_id)
+        )
+    ).first()
+    if task is not None:  # the legal rules apply to a postponed date as well (review M4)
+        adj = adjust_window(task.category, task.cut_type, _facts(task), await legal_settings(c), body.to, body.to)
+        if adj.kind:
+            raise invalid("to", f"{adj.reason} Frühestens am {adj.due_from:%d.%m.%Y}.")
     result = await c.execute(
         update(todos)
         .where(todos.c.id == todo_id, todos.c.status == "open")
@@ -367,8 +461,12 @@ async def postpone(todo_id: str, body: PostponeIn, c: Conn, day: Today) -> dict[
 async def calendar_year(c: Conn, year: Annotated[int, Query(ge=2000, le=2100)]) -> dict[str, Any]:
     """Enabled tasks of active plants projected onto the months of `year` (not stored)."""
     rows = await c.execute(
-        select(tasks, _plant_title).select_from(_plant_join).where(tasks.c.enabled, _active).order_by(tasks.c.title)
+        select(tasks, _plant_title, *FACTS)
+        .select_from(_plant_join)
+        .where(tasks.c.enabled, _active)
+        .order_by(tasks.c.title)
     )
+    s = await legal_settings(c)
     months: list[list[dict[str, Any]]] = [[] for _ in range(12)]
     for r in rows:
         entry = {
@@ -378,6 +476,41 @@ async def calendar_year(c: Conn, year: Annotated[int, Query(ge=2000, le=2100)]) 
             "urgent": r.urgent,
             "plant": {"id": r.plant_id, "title": r.plant_title} if r.plant_id else None,
         }
-        for m in months_in_year(_timing(r), year):
-            months[m - 1].append(entry)
+        found = months_in_year(_timing(r), year)
+        if r.recurrence == "yearly" and r.month_from > r.month_to:  # window order: Nov, Dec, Jan, Feb
+            found = [m for m in found if m >= r.month_from] + [m for m in found if m < r.month_from]
+        allowed, moved = allowed_months(r.category, r.cut_type, _facts(r), s, found)
+        for m in allowed:
+            months[m - 1].append(entry | {"moved": m in moved})
     return {"year": year, "months": months}
+
+
+# ----- legal preview for the task form ----------------------------------------------
+
+
+@router.post("/legal/preview")
+async def legal_preview(body: TaskIn, c: Conn, day: Today) -> dict[str, Any]:
+    """Notes and the next (possibly moved) window of a task that is being edited."""
+    await _check_plant(c, body)
+    q = select(plants.c.id.label("plant_id"), *FACTS).select_from(
+        plants.join(species, species.c.id == plants.c.species_id)
+    )
+    row = (await c.execute(q.where(plants.c.id == body.plant_id))).first() if body.plant_id else None
+    r = _Probe(body, row)
+    s = await legal_settings(c)
+    upcoming = occurrences(_timing(r), day, _adjuster(r, s), horizon_days=400)  # the next real date, even if far
+    nxt = upcoming[0] if upcoming else None
+    return {
+        "notes": _notes(r, s, months_in_year(_timing(r), day.year)),
+        "next": {"due_from": nxt.due_from, "due_to": nxt.due_to, "reason": nxt.reason} if nxt else None,
+    }
+
+
+class _Probe:
+    """A TaskIn plus plant facts, shaped like a task row for the helpers above."""
+
+    def __init__(self, body: TaskIn, plant: Any) -> None:
+        self.__dict__.update(body.model_dump())
+        self.plant_id = body.plant_id if plant is not None else None
+        for k in ("sp_woody", "sp_growth", "sp_latin", "pl_girth"):
+            setattr(self, k, getattr(plant, k) if plant is not None else None)

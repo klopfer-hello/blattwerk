@@ -2,7 +2,7 @@
 // router (no dependency; the phone's back button works through the history).
 import { useEffect, useState, type ReactNode } from 'react';
 import type { Category, Todo } from '../mock/data';
-import { CATEGORIES, type Category as ApiCategory, type TaskIn } from '../api';
+import { CATEGORIES, type Category as ApiCategory, type LegalNote, type TaskIn } from '../api';
 
 export function useRoute(): string[] {
   const read = () => (window.location.hash.replace(/^#\/?/, '') || 'heute').split('/');
@@ -98,6 +98,17 @@ export function Chip({ category, label }: { category: Category; label?: string }
 
 export function Back({ href, label }: { href: string; label: string }) {
   return <a className="back" href={href}>‹ {label}</a>;
+}
+
+/** § notes from the rule engine (api legal.py), warnings first. */
+export function LegalNotes({ notes }: { notes: LegalNote[] }) {
+  if (!notes.length) return null;
+  const sorted = [...notes].sort((a, b) => (a.severity === b.severity ? 0 : a.severity === 'warn' ? -1 : 1));
+  return (
+    <div className="stack" style={{ gap: 8 }}>
+      {sorted.map((n) => <Legal key={n.code}>{n.text} <span className="tiny" style={{ color: 'inherit' }}>({n.ref})</span></Legal>)}
+    </div>
+  );
 }
 
 export function Legal({ children }: { children: ReactNode }) {

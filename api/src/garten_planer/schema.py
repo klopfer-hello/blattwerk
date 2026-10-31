@@ -136,6 +136,7 @@ tasks = Table(
     Column("plant_id", Text, ForeignKey("plants.id", ondelete="RESTRICT"), index=True),
     Column("title", Text, nullable=False),
     Column("category", Text, nullable=False),
+    Column("cut_type", Text),  # Schnitt only: pflege (gentle) | stark (strong): decides §39 (legal.py)
     Column("instructions", Text, nullable=False),
     Column("recurrence", Text, nullable=False),
     Column("due_date", Date),
@@ -151,6 +152,10 @@ tasks = Table(
     Column("updated_at", DateTime(timezone=True), nullable=False),
     CheckConstraint(_in("category", TASK_CATEGORY), name="category"),
     CheckConstraint(_in("source", TASK_SOURCE), name="source"),
+    CheckConstraint(
+        "(category = 'schnitt' AND cut_type IN ('pflege', 'stark')) OR (category <> 'schnitt' AND cut_type IS NULL)",
+        name="cut_type",
+    ),
     CheckConstraint(
         "(recurrence = 'once' AND due_date IS NOT NULL)"
         " OR (recurrence = 'yearly' AND month_from BETWEEN 1 AND 12 AND month_to BETWEEN 1 AND 12)"
@@ -173,6 +178,7 @@ todos = Table(
     Column("note", Text, nullable=False),
     Column("postponed", Boolean, nullable=False),
     Column("notified_at", DateTime(timezone=True)),  # included in a push digest (sent once)
+    Column("legal_adjustment", Text),  # why the window was moved or shortened (legal.py), shown to the user
     Column("created_at", DateTime(timezone=True), nullable=False),
     # makes creating occurrences idempotent; a timing change starts a new generation, so old
     # occurrences (history) never block new ones and are never renamed or deleted

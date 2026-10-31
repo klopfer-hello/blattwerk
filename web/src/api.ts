@@ -79,20 +79,23 @@ export const CATEGORIES = {
 } as const;
 export type Category = keyof typeof CATEGORIES;
 export type Recurrence = 'once' | 'yearly' | 'interval';
+export type CutType = 'pflege' | 'stark';
+export interface LegalNote { code: string; severity: 'info' | 'warn'; text: string; ref: string }
 export interface TaskIn {
-  plant_id: string | null; title: string; category: Category; instructions: string; recurrence: Recurrence;
+  plant_id: string | null; title: string; category: Category; cut_type: CutType | null; instructions: string; recurrence: Recurrence;
   due_date: string | null; month_from: number | null; month_to: number | null; interval_days: number | null;
   start_date: string | null; urgent: boolean;
 }
-export interface Task extends TaskIn { id: string; plant: { id: string; title: string } | null; source: string; enabled: boolean }
+export interface Task extends TaskIn { id: string; plant: { id: string; title: string } | null; source: string; enabled: boolean; notes: LegalNote[] }
 export interface Todo {
   id: string; status: 'open' | 'done' | 'skipped'; due_from: string; due_to: string; overdue: boolean; postponed: boolean;
-  note: string; done_at: string | null;
+  note: string; done_at: string | null; legal_adjustment: string | null; notes: LegalNote[];
+  blocked_until: string | null;  // strong cut not allowed today (§ 39): first allowed day
   task: { id: string; title: string; category: Category; urgent: boolean; instructions: string; recurrence: Recurrence };
   plant: { id: string; title: string } | null;
 }
 export interface Heute { year: number; month: number; open: Todo[]; done: Todo[] }
-export interface CalendarEntry { task_id: string; title: string; category: Category; urgent: boolean; plant: { id: string; title: string } | null }
+export interface CalendarEntry { task_id: string; title: string; category: Category; urgent: boolean; moved: boolean; plant: { id: string; title: string } | null }
 
 const enc = encodeURIComponent;
 
@@ -127,5 +130,6 @@ export const api = {
   pushSubscribe: (s: { endpoint: string; keys: { p256dh: string; auth: string }; label: string }) => request<{ id: string }>('POST', '/push/subscriptions', s),
   pushUnsubscribe: (endpoint: string) => request<unknown>('POST', '/push/unsubscribe', { endpoint }),
   pushTest: (endpoint: string) => request<unknown>('POST', '/push/test', { endpoint }),
+  legalPreview: (t: TaskIn) => request<{ notes: LegalNote[]; next: { due_from: string; due_to: string; reason: string } | null }>('POST', '/legal/preview', t),
   calendar: (year: number) => request<{ year: number; months: CalendarEntry[][] }>('GET', `/calendar?year=${year}`),
 };

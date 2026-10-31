@@ -84,6 +84,7 @@ export function Today() {
 function whenText(t: Todo): string {
   if (t.status === 'skipped') return 'Übersprungen' + (t.note ? ` · „${t.note}“` : '');
   if (t.status === 'done') return `Erledigt am ${t.done_at ? localDay(t.done_at) : ''}` + (t.note ? ` · „${t.note}“` : '');
+  if (t.blocked_until) return `§ Erst ab ${deDate(t.blocked_until)} erlaubt (Vogelschutzzeit)`;
   if (t.overdue) return `Überfällig seit ${deDate(t.due_to)}`;
   if (t.postponed) return `Verschoben auf ${deDate(t.due_from)}`;
   return t.due_from === t.due_to ? `Fällig am ${deDate(t.due_from)}` : `bis ${deDate(t.due_to)}`;
@@ -101,6 +102,7 @@ export function TodoItem({ t, busy, onToggle }: { t: Todo; busy: boolean; onTogg
         <span className="todo-title">{t.task.title}</span>
         <span className="row" style={{ gap: 6 }}><TaskChip category={t.task.category} />{t.plant && <span className="small muted">{t.plant.title}</span>}</span>
         <span className={!done && (t.overdue || t.task.urgent) ? 'when urgent' : done ? 'small muted' : 'when'}>{whenText(t)}</span>
+        {!done && t.legal_adjustment && <span className="small" style={{ color: 'var(--legal)', fontWeight: 700 }}>{t.legal_adjustment.startsWith('Verschoben') ? '§ verschoben (Vogelschutzzeit)' : '§ Zeitraum angepasst (Vogelschutzzeit)'}</span>}
       </a>
     </div>
   );

@@ -20,7 +20,7 @@ SAT_9 = datetime(2026, 11, 7, 9, 0, tzinfo=TZ)
 
 
 def task(client: TestClient, title: str) -> None:
-    body = {"title": title, "category": "schnitt", "recurrence": "yearly", "month_from": 11, "month_to": 11}
+    body = {"title": title, "category": "duengen", "recurrence": "yearly", "month_from": 11, "month_to": 11}
     assert client.post("/api/tasks", json=body, headers=H).status_code == 201
 
 
@@ -88,7 +88,7 @@ def test_old_overdue_todos_are_not_announced(client: TestClient) -> None:
     """The first device would otherwise get every to-do ever overdue at once."""
     client.app.dependency_overrides[now] = lambda: SAT_9  # type: ignore[attr-defined]
     client.post("/api/push/subscriptions", json=sub(), headers=H)
-    body = {"title": "Uralt", "category": "schnitt", "recurrence": "once", "due_date": "2026-10-01"}
+    body = {"title": "Uralt", "category": "duengen", "recurrence": "once", "due_date": "2026-10-01"}
     assert client.post("/api/tasks", json=body, headers=H).status_code == 201
     task(client, "Frisch")
     assert run(run_digest, SAT_9) == 1

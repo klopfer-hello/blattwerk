@@ -1,8 +1,8 @@
 // To-do detail (one occurrence: note, done/undo, skip, postpone) and the task
 // form (what and when: once / every year in a month window / every n days).
 import { useEffect, useState } from 'react';
-import { ApiError, CATEGORIES, api, type Category, type Plant, type Recurrence, type TaskIn, type Todo } from '../api';
-import { Back, TaskChip, deDate, localIso, monthName, timingText } from '../components/ui';
+import { ApiError, CATEGORIES, api, type Category, type LegalNote, type Plant, type Recurrence, type TaskIn, type Todo } from '../api';
+import { Back, Legal, LegalNotes, TaskChip, deDate, localIso, monthName, timingText } from '../components/ui';
 import { UNDO_409 } from './Today';
 
 const msg = (e: unknown) => (e instanceof ApiError ? e.message : 'Unbekannter Fehler');
@@ -20,7 +20,11 @@ export function TodoDetail({ id }: { id: string }) {
     if (busy) return;
     setBusy(true); setError('');
     try { const x = await f(); setT(x); setNote(x.note); }
-    catch (e) { setError(e instanceof ApiError && e.status === 409 ? on409 : e instanceof ApiError && e.status === 422 ? 'Bitte ein Datum nach heute wählen.' : msg(e)); }
+    catch (e) {
+      const legal = e instanceof ApiError ? e.fields.to : undefined;  // § reason from the server (German)
+      setError(e instanceof ApiError && e.status === 409 ? on409 : legal && legal.includes('§') ? legal
+        : e instanceof ApiError && e.status === 422 ? 'Bitte ein Datum nach heute wählen.' : msg(e));
+    }
     finally { setBusy(false); }
   }
   const open = t.status === 'open';
@@ -34,11 +38,14 @@ export function TodoDetail({ id }: { id: string }) {
         <span className={t.overdue ? 'when urgent' : 'small muted'}>
           {t.due_from === t.due_to ? `Fällig am ${deDate(t.due_from)}` : `Fällig ${deDate(t.due_from)} – ${deDate(t.due_to)}`}
           {t.overdue ? ' · überfällig' : ''}{t.postponed ? ' · verschoben' : ''}
+          {t.blocked_until ? ` · § erst ab ${deDate(t.blocked_until)} erlaubt` : ''}
         </span>
       </div>
       {t.task.instructions
         ? <section className="box stack"><h2 style={{ fontSize: 17 }}>Anleitung</h2><p style={{ whiteSpace: 'pre-wrap' }}>{t.task.instructions}</p></section>
         : <p className="small muted">Keine Anleitung hinterlegt. Mit dem KI-Pflegeplan (M5) kommt sie automatisch.</p>}
+      {t.legal_adjustment && <Legal><strong>{t.legal_adjustment}</strong></Legal>}
+      <LegalNotes notes={t.notes} />
 
       <section className="stack" style={{ gap: 10, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
         <div className="field">
@@ -64,7 +71,7 @@ export function TodoDetail({ id }: { id: string }) {
   );
 }
 
-const EMPTY: TaskIn = { plant_id: null, title: '', category: 'sonstiges', instructions: '', recurrence: 'yearly', due_date: null, month_from: new Date().getMonth() + 1, month_to: new Date().getMonth() + 1, interval_days: 7, start_date: null, urgent: false };
+const EMPTY: TaskIn = { plant_id: null, title: '', category: 'sonstiges', cut_type: null, instructions: '', recurrence: 'yearly', due_date: null, month_from: new Date().getMonth() + 1, month_to: new Date().getMonth() + 1, interval_days: 7, start_date: null, urgent: false };
 const FIELD_TEXT: Record<string, string> = { title: 'Bitte einen Titel (bis 120 Zeichen).', due_date: 'Bitte ein Datum wählen.', interval_days: '1 bis 3650 Tage.', plant_id: 'Pflanze nicht gefunden.' };
 
 export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
@@ -78,7 +85,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
   useEffect(() => {
     if (!id) return;
     api.task(id).then((t) => {
-      const { id: _i, plant: _p, source: _s, enabled: on, ...rest } = t;
+      const { id: _i, plant: _p, source: _s, enabled: on, notes: _n, ...rest } = t;
       setV(rest); setEnabled(on);
     }, (e) => setError(e instanceof ApiError ? e : new ApiError(0, msg(e))));
   }, [id]);
@@ -126,9 +133,19 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       <div className="stack">
         <span className="label">Kategorie</span>
         <div className="row" role="group" aria-label="Kategorie">
-          {(Object.keys(CATEGORIES) as Category[]).map((c) => <button key={c} className="seg" aria-pressed={v.category === c} onClick={() => set({ category: c })}>{CATEGORIES[c]}</button>)}
+          {(Object.keys(CATEGORIES) as Category[]).map((c) => <button key={c} className="seg" aria-pressed={v.category === c} onClick={() => set({ category: c, cut_type: c === 'schnitt' ? v.cut_type ?? 'pflege' : null })}>{CATEGORIES[c]}</button>)}
         </div>
       </div>
+      {v.category === 'schnitt' && (
+        <div className="stack">
+          <span className="label">Art des Schnitts</span>
+          <div className="row" role="group" aria-label="Art des Schnitts">
+            <button className="seg" aria-pressed={v.cut_type === 'pflege'} onClick={() => set({ cut_type: 'pflege' })}>Schonender Pflegeschnitt</button>
+            <button className="seg" aria-pressed={v.cut_type === 'stark'} onClick={() => set({ cut_type: 'stark' })}>Starker Rückschnitt / Roden</button>
+          </div>
+          <span className="tiny">Pflegeschnitt = Zuwachs entfernen, in Form halten. Stark = deutlich zurückschneiden, auf den Stock setzen oder entfernen.</span>
+        </div>
+      )}
       <div className="field">
         <label htmlFor="plant">Pflanze</label>
         <select id="plant" className="input" value={v.plant_id ?? ''} onChange={(e) => set({ plant_id: e.target.value || null })}>
@@ -161,6 +178,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       )}
       {(fieldErr('interval_days') || fieldErr('due_date')) && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldErr('interval_days') || fieldErr('due_date')}</span>}
       <span className="small muted">{timingText(v)}</span>
+      <LegalPreview task={v} />
       <div className="setrow" style={{ borderBottom: 0 }}>
         <span id="urgent-label">Dringend (oben in der Liste)</span>
         <button className="switch" role="switch" aria-checked={v.urgent} aria-labelledby="urgent-label" onClick={() => set({ urgent: !v.urgent })}><span /></button>
@@ -172,6 +190,26 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       {error && (Object.keys(error.fields).length === 0 || Object.keys(error.fields).some((f) => !(f in FIELD_TEXT))) && <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error.message}</p>}
       <button className="btn primary" onClick={save} disabled={saving || !v.title.trim()}>{saving ? 'Speichert …' : 'Speichern'}</button>
       {id && <button className="btn" onClick={toggleEnabled}>{enabled ? 'Aufgabe pausieren (aus der Liste nehmen)' : 'Aufgabe wieder aktivieren'}</button>}
+    </div>
+  );
+}
+
+// Live § preview while the form changes (debounced; only the newest answer counts).
+function LegalPreview({ task }: { task: TaskIn }) {
+  const [p, setP] = useState<{ notes: LegalNote[]; next: { due_from: string; due_to: string; reason: string } | null } | null>(null);
+  const key = JSON.stringify([task.category, task.cut_type, task.plant_id, task.recurrence, task.due_date, task.month_from, task.month_to, task.interval_days, task.start_date]);
+  useEffect(() => {
+    let current = true;
+    const t = window.setTimeout(() => {
+      api.legalPreview({ ...task, title: task.title.trim() || 'Vorschau' }).then((x) => { if (current) setP(x); }, () => { if (current) setP(null); });
+    }, 300);
+    return () => { current = false; window.clearTimeout(t); };
+  }, [key]); // eslint-disable-line react-hooks/exhaustive-deps
+  if (!p || (!p.notes.length && !p.next?.reason)) return <div aria-live="polite" />;
+  return (
+    <div className="stack" style={{ gap: 8 }} aria-live="polite">
+      {p.next?.reason && <Legal><strong>{p.next.reason}</strong> Nächster Termin: {deDate(p.next.due_from)} – {deDate(p.next.due_to)}.</Legal>}
+      <LegalNotes notes={p.notes} />
     </div>
   );
 }

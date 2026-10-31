@@ -8,6 +8,7 @@ created after the fact, an overdue `once` is). `period` is the stable key of an
 occurrence (UNIQUE per task in the DB), so creating them is idempotent."""
 
 import calendar
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Literal
@@ -31,6 +32,17 @@ class Occurrence:
     period: str
     due_from: date
     due_to: date
+    reason: str = ""  # set when a rule moved or shortened the window (legal.py)
+
+
+Adjust = Callable[[date, date], tuple[date, date, str]]
+
+
+def _apply(o: Occurrence, adjust: Adjust | None) -> Occurrence:
+    if adjust is None:
+        return o
+    start, end, reason = adjust(o.due_from, o.due_to)
+    return Occurrence(o.period, start, end, reason)
 
 
 def _month_end(year: int, month: int) -> date:
@@ -52,26 +64,28 @@ def interval_after(closed_on: date, days: int) -> Occurrence:
     return Occurrence(start.isoformat(), start, start + timedelta(days=_slack(days)))
 
 
-def occurrences(t: TaskTiming, today: date) -> list[Occurrence]:
-    horizon = today + timedelta(days=HORIZON_DAYS)
+def occurrences(
+    t: TaskTiming, today: date, adjust: Adjust | None = None, horizon_days: int = HORIZON_DAYS
+) -> list[Occurrence]:
+    """`adjust` (the legal rules) runs before the relevance check, so a June window
+    moved to October is still created in October."""
+    horizon = today + timedelta(days=horizon_days)
     if t.recurrence == "once":
         assert t.due_date is not None
-        return [Occurrence("once", t.due_date, t.due_date)] if t.due_date <= horizon else []
+        o = _apply(Occurrence("once", t.due_date, t.due_date), adjust)
+        return [o] if o.due_from <= horizon else []
     if t.recurrence == "yearly":
         assert t.month_from is not None and t.month_to is not None
         out = []
         for year in (today.year - 1, today.year, today.year + 1):
-            start, end = yearly_window(year, t.month_from, t.month_to)
-            if end >= today and start <= horizon:
-                out.append(Occurrence(str(year), start, end))
+            o = _apply(Occurrence(str(year), *yearly_window(year, t.month_from, t.month_to)), adjust)
+            if o.due_to >= today and o.due_from <= horizon:
+                out.append(o)
         return out
     assert t.interval_days is not None
     start = t.start_date or today
-    return (
-        [Occurrence(start.isoformat(), start, start + timedelta(days=_slack(t.interval_days)))]
-        if start <= horizon
-        else []
-    )
+    o = _apply(Occurrence(start.isoformat(), start, start + timedelta(days=_slack(t.interval_days))), adjust)
+    return [o] if o.due_from <= horizon else []
 
 
 def months_in_year(t: TaskTiming, year: int) -> list[int]:

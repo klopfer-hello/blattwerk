@@ -201,6 +201,7 @@ class TaskIn(Strict):
     plant_id: Ref | None = None
     title: Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=120), AfterValidator(_has_letters)]
     category: TaskCategory
+    cut_type: Literal["pflege", "stark"] | None = None
     instructions: Annotated[str, Field(max_length=4000)] = ""
     recurrence: Literal["once", "yearly", "interval"]
     due_date: Day | None = None
@@ -216,6 +217,8 @@ class TaskIn(Strict):
         missing = [f for f in needs[self.recurrence] if getattr(self, f) is None]
         if missing:
             raise ValueError(f"{self.recurrence} needs {', '.join(missing)}")
+        if (self.category == "schnitt") != (self.cut_type is not None):
+            raise ValueError("cut_type is required for Schnitt and only allowed there")
         return self
 
 
@@ -224,6 +227,7 @@ class Task(TaskIn):
     plant: dict[str, str] | None
     source: str
     enabled: bool
+    notes: list[dict[str, str]] = []
 
 
 class NoteIn(Strict):
