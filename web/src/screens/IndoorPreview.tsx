@@ -1,6 +1,6 @@
 // Preview of indoor plants (M11) for approval: static example data, nothing is sent or
-// stored. Shows the four new pieces: room and window on the plant, watering in "Heute" with
-// feedback, the care rhythm of a plant, and the vacation planner.
+// stored. Shows the four new pieces: Drinnen/Draußen on the Standort, room and window on the
+// plant, watering in "Heute" with feedback, and the care rhythm of a plant.
 import { useState } from 'react';
 import { Back, Icon } from '../components/ui';
 
@@ -60,6 +60,7 @@ export function IndoorPreview() {
   const [distance, setDistance] = useState('bis 1 m');
   const [material, setMaterial] = useState('Ton');
   const [idShown, setIdShown] = useState(false);
+  const [inside, setInside] = useState('Drinnen');
   return (
     <div className="page">
       <Back href="#/mehr" label="Mehr" />
@@ -67,7 +68,15 @@ export function IndoorPreview() {
       <h1 className="title-s">Zimmerpflanzen</h1>
       <span className="small muted">So würde es aussehen. Die Knöpfe reagieren, speichern aber nichts. Sag, was passt und was anders sein soll.</span>
 
-      <Section n={1} title="Pflanze anlegen: Zimmer, Fenster, Topf">
+      <Section n={1} title="Standort anlegen: drinnen oder draußen">
+        <div className="field"><label htmlFor="pv-sname">Name</label><input id="pv-sname" className="input" defaultValue="Wohnzimmer" /></div>
+        <Choice label="Drinnen oder draußen" options={['Draußen', 'Drinnen']} value={inside} onChange={setInside} />
+        {inside === 'Drinnen'
+          ? <span className="small muted">Art: Zimmer. Pflanzen hier bekommen Gieß-Erinnerungen, aber keine Frost- und Wetterwarnungen.</span>
+          : <span className="small muted">Art: Beet, Gemüsebeet, Rasen, Hecke, Kübelplatz, Gewächshaus … – ohne Gieß-Erinnerungen, mit Wetterwarnungen (wie bisher).</span>}
+      </Section>
+
+      <Section n={2} title="Pflanze anlegen: Zimmer, Fenster, Topf">
         <button className="btn" onClick={() => setIdShown(true)} style={{ fontWeight: 700 }}><Icon name="camera" size={20} />Per Foto bestimmen</button>
         {idShown && (
           <div className="stack" style={{ gap: 6 }}>
@@ -77,7 +86,7 @@ export function IndoorPreview() {
           </div>
         )}
         <div className="field"><label htmlFor="pv-room">Standort</label>
-          <select id="pv-room" className="input" defaultValue="wz"><option value="wz">Wohnzimmer (Zimmer)</option><option>Büro (Zimmer)</option><option>Bad (Zimmer)</option><option>Beet am Zaun (Garten)</option></select>
+          <select id="pv-room" className="input" defaultValue="wz"><option value="wz">Wohnzimmer (drinnen)</option><option>Büro (drinnen)</option><option>Bad (drinnen)</option><option>Beet am Zaun (draußen)</option></select>
         </div>
         <span className="small">Fenster in Richtung</span>
         <Choice label="Fensterrichtung" options={['N', 'O', 'S', 'W', 'keins']} value={win} onChange={setWin} />
@@ -92,13 +101,13 @@ export function IndoorPreview() {
         <span className="tiny">Licht, Topf und Jahreszeit bestimmen den Gieß-Rhythmus. Frostwarnungen und Schnittregeln gelten für Zimmerpflanzen nicht.</span>
       </Section>
 
-      <Section n={2} title="Heute: Gießen mit Rückmeldung">
+      <Section n={3} title="Heute: Gießen mit Rückmeldung">
         <WaterRow name="Elefantenfuß" room="Wohnzimmer · Südfenster" note="durchdringend gießen, Wasser im Untersetzer nach 15 min weg" base={21} />
         <WaterRow name="Monstera" room="Büro · Ostfenster" note="obere 2–3 cm Erde trocken? Dann gießen" base={7} />
         <span className="tiny">Antippen = gegossen. Die Antwort zur Erde passt den Rhythmus an (je ±20 %, 2–60 Tage).</span>
       </Section>
 
-      <Section n={3} title="Auf der Pflanzenseite: Pflege-Rhythmus">
+      <Section n={4} title="Auf der Pflanzenseite: Pflege-Rhythmus">
         <strong style={{ fontSize: 20 }}>Elefantenfuß</strong>
         <span className="small muted">Wohnzimmer · Südfenster, bis 1 m · Topf 18 cm Ton</span>
         {([
@@ -117,26 +126,6 @@ export function IndoorPreview() {
         <span className="tiny">Der Plan kommt wie im Garten von der KI; einzelne Aufgaben kannst du ändern oder abschalten.</span>
       </Section>
 
-      <Section n={4} title="Mehr → Urlaub">
-        <div className="grid2" style={{ gap: 8 }}>
-          <div className="field"><label htmlFor="pv-from">Von</label><input id="pv-from" className="input" type="date" defaultValue="2026-12-20" /></div>
-          <div className="field"><label htmlFor="pv-to">Bis</label><input id="pv-to" className="input" type="date" defaultValue="2027-01-03" /></div>
-        </div>
-        <div className="box stack" style={{ gap: 6 }}>
-          <strong>Vorher (19.12.)</strong>
-          <span>☐ Monstera gründlich gießen – wäre am 24.12. dran</span>
-          <span>☐ Elefantenfuß – nicht nötig, hält bis nach dem Urlaub</span>
-          <span>☐ Pflanzen vom Südfenster etwas wegrücken, zusammenstellen</span>
-          <span>☐ Untersetzer leeren (keine Staunässe)</span>
-        </div>
-        <div className="box stack" style={{ gap: 6 }}>
-          <strong>Für die Pflanzen-Hilfe</strong>
-          <span className="small">28.12. – Monstera (Büro): gießen, bis unten etwas herausläuft</span>
-          <span className="small muted">Sonst nichts – alle anderen halten durch.</span>
-          <button className="btn"><Icon name="send" size={18} />Liste teilen</button>
-        </div>
-        <span className="tiny">Während des Urlaubs keine Erinnerungen. Danach geht der Rhythmus vom letzten Gießen weiter.</span>
-      </Section>
     </div>
   );
 }
