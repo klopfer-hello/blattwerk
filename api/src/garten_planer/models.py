@@ -2,9 +2,13 @@
 never silently disappears."""
 
 from collections.abc import Mapping
+from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, BeforeValidator, ConfigDict, Field
+from pydantic import AfterValidator, BaseModel, BeforeValidator, ConfigDict, Field
+
+from garten_planer.resolver import fold
+from garten_planer.seed import Growth
 
 Bundesland = Literal[
     "Baden-Württemberg", "Bayern", "Berlin", "Brandenburg", "Bremen", "Hamburg", "Hessen",
@@ -61,6 +65,115 @@ class Legal(Strict):
 
 class Notifications(Strict):
     weather_push: bool = True
+
+
+def _strip(v: object) -> object:
+    return v.strip() if isinstance(v, str) else v
+
+
+def _not_future(year: int | None) -> int | None:
+    if year is not None and year > date.today().year:
+        raise ValueError("year is in the future")
+    return year
+
+
+def _has_letters(v: str) -> str:
+    if not fold(v):
+        raise ValueError("needs letters or digits")
+    return v
+
+
+Name60 = Annotated[str, BeforeValidator(_strip), Field(min_length=1, max_length=60), AfterValidator(_has_letters)]
+Text60 = Annotated[Annotated[str, Field(max_length=60)] | None, BeforeValidator(_blank_to_none)]
+Text40 = Annotated[Annotated[str, Field(max_length=40)] | None, BeforeValidator(_blank_to_none)]
+Ref = Annotated[str, Field(min_length=1, max_length=120)]
+Light = Literal["sonnig", "halbschattig", "schattig"]
+StandortType = Literal["beet", "gemuesebeet", "rasen", "hecke", "kuebelplatz", "gewaechshaus", "sonstiges"]
+Form = Literal[
+    "Säule", "Halbstamm", "Hochstamm", "Busch", "Spindel", "Spalier", "Strauch", "Hecke", "Solitär", "Kübel",
+    "Kletterer", "Horst", "Knolle",
+]  # fmt: skip
+
+
+class StandortIn(Strict):
+    """F-ST-2. A place in the garden; plants refer to it."""
+
+    name: Name60
+    light: Light
+    type: StandortType
+    notes: Annotated[str, Field(max_length=500)] = ""
+
+
+class Standort(StandortIn):
+    id: str
+    plant_count: int
+
+
+class PlantIn(Strict):
+    """F-PL-3. One concrete specimen. References are checked by the route."""
+
+    species_id: Ref
+    cultivar_id: Ref | None = None
+    standort_id: Ref
+    nickname: Text60 = None
+    form: Form | None = None
+    rootstock: Text40 = None
+    planted_year: Annotated[int | None, Field(ge=1900), AfterValidator(_not_future)] = None
+    girth_cm: Annotated[int | None, Field(ge=1, le=1000)] = None
+    in_container: bool = False
+    notes: Annotated[str, Field(max_length=1000)] = ""
+
+
+class SpeciesRef(BaseModel):
+    id: str
+    latin: str
+    german: str
+    growth: str
+    woody: bool
+
+
+class CultivarRef(BaseModel):
+    id: str
+    name: str
+
+
+class StandortRef(BaseModel):
+    id: str
+    name: str
+    light: Light | None  # None: the Standort was deleted meanwhile (see plants._expand)
+
+
+class Plant(BaseModel):
+    id: str
+    species: SpeciesRef
+    cultivar: CultivarRef | None
+    standort: StandortRef
+    nickname: str | None
+    form: Form | None
+    rootstock: str | None
+    planted_year: int | None
+    girth_cm: int | None
+    in_container: bool
+    notes: str
+    archived: bool
+
+
+class SpeciesIn(Strict):
+    """A species the seed does not have (source "user"); Claude enriches it later (M5)."""
+
+    latin: Annotated[
+        str,
+        BeforeValidator(_strip),
+        Field(min_length=3, max_length=80, pattern="^[A-Za-z \u00d7.\\-]+$"),
+        AfterValidator(_has_letters),
+    ]
+    german: Annotated[list[Name60], Field(min_length=1, max_length=5)]
+    growth: Growth
+    woody: bool
+
+
+class CultivarIn(Strict):
+    name: Name60
 
 
 class GardenSettings(Strict):

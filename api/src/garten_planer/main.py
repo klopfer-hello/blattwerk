@@ -1,6 +1,7 @@
 """App factory: `uvicorn --factory garten_planer.main:create_app` (config from
 the environment) or `create_app(Config(...))` in tests."""
 
+import asyncio
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -12,8 +13,9 @@ from pymongo.errors import PyMongoError
 
 from garten_planer.config import Config
 from garten_planer.db import connect
+from garten_planer.errors import ApiError
 from garten_planer.guard import WriteGuard
-from garten_planer.routes import health, settings
+from garten_planer.routes import health, plants, settings, species, standorte
 
 log = logging.getLogger("garten_planer")
 
@@ -25,6 +27,9 @@ def create_app(config: Config | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         client = connect(cfg)
         app.state.db = client[cfg.db_name]
+        app.state.ready_lock = asyncio.Lock()
+        app.state.catalog = None
+        app.state.catalog_gen = 0
         try:
             yield
         finally:
@@ -51,6 +56,13 @@ def create_app(config: Config | None = None) -> FastAPI:
         log.warning("database error: %s", type(exc).__name__)  # type only: messages can contain hosts
         return JSONResponse({"error": "database unavailable"}, status_code=503)
 
-    app.include_router(health.router, prefix="/api")
-    app.include_router(settings.router, prefix="/api")
+    @app.exception_handler(ApiError)
+    async def api_error(_: Request, exc: ApiError) -> JSONResponse:
+        body: dict[str, object] = {"error": exc.message}
+        if exc.fields:
+            body["fields"] = exc.fields
+        return JSONResponse(body, status_code=exc.status)
+
+    for module in (health, settings, standorte, species, plants):
+        app.include_router(module.router, prefix="/api")
     return app

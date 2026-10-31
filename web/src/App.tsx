@@ -7,7 +7,7 @@ import { Nav, useRoute } from './components/ui';
 import { Alert, Today } from './screens/Today';
 import { Task } from './screens/Task';
 import { Calendar } from './screens/Calendar';
-import { AddPlant, PlantDetail, Plants } from './screens/Plants';
+import { PlantDetail, PlantForm, Plants, Standorte } from './screens/Plants';
 import { Chat, More, Weather } from './screens/More';
 import { Settings } from './screens/Settings';
 
@@ -48,7 +48,7 @@ export function App() {
     addChatTodo: () => setSaved((s) => ({ ...s, chatTodo: true })),
   }), [saved]);
 
-  const [page, arg] = route;
+  const [page, arg, sub] = route;
   const urgent = state.list.filter((t) => t.urgent && !state.done[t.id]).length;
   const screen = (() => {
     switch (page) {
@@ -56,8 +56,9 @@ export function App() {
       case 'aufgabe': return <Task key={arg} id={arg ?? ''} state={state} />;
       case 'kalender': return <Calendar />;
       case 'pflanzen': return <Plants />;
-      case 'pflanze': return <PlantDetail key={arg} id={arg ?? ''} />;
-      case 'neu': return <AddPlant />;
+      case 'pflanze': return sub === 'bearbeiten' ? <PlantForm key={`edit-${arg}`} id={arg} /> : <PlantDetail key={arg} id={arg ?? ''} />;
+      case 'neu': return <PlantForm key="new" />;
+      case 'standorte': return <Standorte />;
       case 'fragen': return <Chat state={state} />;
       case 'wetter': return <Weather />;
       case 'einstellungen': return <Settings />;

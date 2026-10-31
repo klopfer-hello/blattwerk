@@ -59,7 +59,7 @@ const TABS = [
 ];
 const SECTION: Record<string, string> = {
   heute: 'heute', warnung: 'heute', aufgabe: 'heute', kalender: 'kalender', pflanzen: 'pflanzen', pflanze: 'pflanzen',
-  neu: 'pflanzen', fragen: 'fragen', mehr: 'mehr', wetter: 'mehr', einstellungen: 'mehr',
+  neu: 'pflanzen', fragen: 'fragen', mehr: 'mehr', wetter: 'mehr', einstellungen: 'mehr', standorte: 'mehr',
 };
 
 export function Nav({ route, urgent }: { route: string; urgent: number }) {

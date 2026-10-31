@@ -119,6 +119,7 @@ export function More({ onWelcome }: { onWelcome: () => void }) {
   }, []);
   const rows = [
     { href: '#/einstellungen', icon: 'gear', title: 'Einstellungen', text: 'Ort, Bundesland, Dünger, Baumschutz, Benachrichtigungen' },
+    { href: '#/standorte', icon: 'plant', title: 'Standorte', text: 'Orte im Garten mit Sonne/Schatten' },
     { href: '#/wetter', icon: 'cloud', title: 'Wetter & Jahreszeit', text: 'Messwerte, Frostnächte, phänologischer Kalender' },
   ];
   return (

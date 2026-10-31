@@ -1,17 +1,41 @@
-import { useState } from 'react';
-import { MONTHS, NAME_SUGGESTIONS, PLANTS, STANDORTE, plantById, standortById, type Light } from '../mock/data';
+// Plants (M2: real data). List by Standort, detail with facts, add/edit form
+// with live name suggestions. Care plan and pest tabs fill in with M5; demo
+// plants (links from the still-demo Heute/Kalender) render as DemoPlantDetail.
+import { useEffect, useRef, useState } from 'react';
+import {
+  ApiError, FORMS, STANDORT_TYPES, api, type Candidate, type Form, type Light, type Plant, type PlantIn, type Species,
+  type Standort,
+} from '../api';
+import { MONTHS, plantById, standortById } from '../mock/data';
 import { Back, Chip, Icon, Legal } from '../components/ui';
 
 const LIGHT: Record<Light, { bg: string; fg: string }> = {
   sonnig: { bg: '#FDF1CF', fg: '#6B4A00' }, halbschattig: { bg: '#E9EEF0', fg: '#2F4550' }, schattig: { bg: '#E1E4EA', fg: '#2B3244' },
 };
-const LightChip = ({ light }: { light: Light }) => <span className="chip" style={{ background: LIGHT[light].bg, color: LIGHT[light].fg }}>{light}</span>;
+export const LightChip = ({ light }: { light: Light | null }) => (light ? <span className="chip" style={{ background: LIGHT[light].bg, color: LIGHT[light].fg }}>{light}</span> : null);
+const plantTitle = (p: Plant) => p.nickname || `${p.species.german}${p.cultivar ? ` ‘${p.cultivar.name}’` : ''}`;
+const fail = (e: unknown) => (e instanceof ApiError ? e : new ApiError(0, 'Unbekannter Fehler'));
 
 export function Plants() {
+  const [plants, setPlants] = useState<Plant[] | null>(null);
+  const [archived, setArchived] = useState(false);
+  const [error, setError] = useState<ApiError | null>(null);
   const [q, setQ] = useState('');
+  useEffect(() => {   // ignore answers for a tab that is no longer shown
+    let current = true;
+    setPlants(null); setError(null);
+    api.plants(archived).then((x) => { if (current) setPlants(x); }, (e) => { if (current) setError(fail(e)); });
+    return () => { current = false; };
+  }, [archived]);
+
   const needle = q.trim().toLowerCase();
-  const match = (p: (typeof PLANTS)[number]) => !needle || `${p.name} ${p.latin}`.toLowerCase().includes(needle);
-  const sites = STANDORTE.map((s) => ({ ...s, plants: PLANTS.filter((p) => p.standortId === s.id && match(p)) })).filter((s) => s.plants.length);
+  const shown = (plants ?? []).filter((p) => !needle || `${plantTitle(p)} ${p.species.latin} ${p.species.german} ${p.cultivar?.name ?? ''}`.toLowerCase().includes(needle));
+  const groups = new Map<string, { name: string; light: Light | null; items: Plant[] }>();
+  for (const p of shown) {
+    const g = groups.get(p.standort.id) ?? { name: p.standort.name, light: p.standort.light, items: [] };
+    g.items.push(p);
+    groups.set(p.standort.id, g);
+  }
   return (
     <div className="page">
       <header className="stack" style={{ gap: 12 }}>
@@ -20,154 +44,398 @@ export function Plants() {
           <a href="#/neu" className="btn primary" style={{ minHeight: 44, fontSize: 16, borderRadius: 22 }}><Icon name="plus" size={18} stroke={2.5} />Neu</a>
         </div>
         <label className="sr-only" htmlFor="q">Pflanze suchen</label>
-        <input id="q" type="search" className="input" placeholder="Suchen: deutsch oder lateinisch" value={q} onChange={(e) => setQ(e.target.value)} />
-        <span className="small muted">{PLANTS.length} Pflanzen · {STANDORTE.length} Standorte (Beispieldaten)</span>
+        <input id="q" type="search" className="input" placeholder="Suchen: deutsch, lateinisch, Sorte" value={q} onChange={(e) => setQ(e.target.value)} />
+        <div className="row" role="group" aria-label="Anzeige">
+          <button className="seg" aria-pressed={!archived} onClick={() => setArchived(false)}>Im Garten</button>
+          <button className="seg" aria-pressed={archived} onClick={() => setArchived(true)}>Archiv</button>
+        </div>
       </header>
-      {sites.map((s) => (
-        <section key={s.id} className="stack">
-          <div className="between"><h2 style={{ fontSize: 18 }}>{s.name}</h2><LightChip light={s.light} /></div>
-          {s.plants.map((p) => (
+      {error && <p className="box" role="alert">{error.message}</p>}
+      {!plants && !error && <p className="muted">Lädt …</p>}
+      {plants && plants.length === 0 && !archived && (
+        <div className="box stack">
+          <strong>Noch keine eigenen Pflanzen.</strong>
+          <span>Leg deine erste Pflanze an – deutscher oder lateinischer Name, auch mit Tippfehlern.</span>
+          <a href="#/neu" className="btn primary">Erste Pflanze anlegen</a>
+        </div>
+      )}
+      {plants && plants.length === 0 && archived && <p className="box">Keine archivierten Pflanzen.</p>}
+      {plants && plants.length > 0 && shown.length === 0 && <p className="box">Nichts gefunden.</p>}
+      {[...groups.entries()].map(([id, g]) => (
+        <section key={id} className="stack">
+          <div className="between"><h2 style={{ fontSize: 18 }}>{g.name}</h2><LightChip light={g.light} /></div>
+          {g.items.map((p) => (
             <a key={p.id} href={`#/pflanze/${p.id}`} className="card between" style={{ textDecoration: 'none', color: 'var(--ink)' }}>
               <span className="stack" style={{ gap: 3, minWidth: 0 }}>
-                <strong style={{ fontSize: 17 }}>{p.name}</strong>
-                <span className="small muted" style={{ fontStyle: 'italic' }}>{p.latin}</span>
-                <span className="small" style={{ color: 'var(--green)' }}>Nächstes: {p.next}</span>
+                <strong style={{ fontSize: 17 }}>{plantTitle(p)}</strong>
+                <span className="small muted" style={{ fontStyle: 'italic' }}>{p.species.latin}{p.cultivar ? ` ‘${p.cultivar.name}’` : ''}</span>
+                {p.form && <span className="small muted">{p.form}{p.planted_year ? ` · seit ${p.planted_year}` : ''}</span>}
               </span>
               <span aria-hidden="true" style={{ fontSize: 22, color: 'var(--muted)' }}>›</span>
             </a>
           ))}
         </section>
       ))}
-      {sites.length === 0 && <p className="box">Keine Pflanze gefunden. <a href="#/neu">Neu anlegen?</a></p>}
     </div>
   );
 }
 
 export function PlantDetail({ id }: { id: string }) {
-  const p = plantById(id);
+  const [p, setP] = useState<Plant | null>(null);
+  const [error, setError] = useState<ApiError | null>(null);
   const [tab, setTab] = useState<'plan' | 'pests' | 'history'>('plan');
-  if (!p) return <div className="page"><Back href="#/pflanzen" label="Pflanzen" /><p>Pflanze nicht gefunden.</p></div>;
-  const site = standortById(p.standortId);
-  const facts = [['Standort', `${site?.name} · ${site?.light}`], ['Form', p.form], ['Gepflanzt', String(p.planted)], ['Winterhart', p.hardy]];
+  const [busy, setBusy] = useState(false);
+  useEffect(() => { api.plant(id).then(setP, (e) => setError(fail(e))); }, [id]);
+
+  if (error?.status === 404 && plantById(id)) return <DemoPlantDetail id={id} />;
+  if (!p) return <div className="page"><Back href="#/pflanzen" label="Pflanzen" /><p className="box">{error ? error.message : 'Lädt …'}</p></div>;
+
+  async function toggleArchive() {
+    if (!p) return;
+    setBusy(true); setError(null);
+    try { setP(await (p.archived ? api.restorePlant(p.id) : api.archivePlant(p.id))); } catch (e) { setError(fail(e)); } finally { setBusy(false); }
+  }
+  const facts = [
+    ['Standort', `${p.standort.name} · ${p.standort.light}`], ['Form', p.form ?? '–'], ['Gepflanzt', p.planted_year?.toString() ?? '–'],
+    ['Im Kübel', p.in_container ? 'ja' : 'nein'], ...(p.rootstock ? [['Unterlage', p.rootstock]] : []),
+    ...(p.girth_cm ? [['Stammumfang', `${p.girth_cm} cm`]] : []),
+  ];
   return (
     <div className="page">
       <Back href="#/pflanzen" label="Pflanzen" />
       <div className="stack" style={{ gap: 4 }}>
-        <h1 className="title-s">{p.name}</h1>
-        <span className="muted" style={{ fontStyle: 'italic' }}>{p.latin}</span>
+        {p.archived && <span className="chip" style={{ background: 'var(--surface)', color: 'var(--muted)' }}>archiviert</span>}
+        <h1 className="title-s">{plantTitle(p)}</h1>
+        <span className="muted" style={{ fontStyle: 'italic' }}>{p.species.latin}{p.cultivar ? ` ‘${p.cultivar.name}’` : ' · Sorte unbekannt'}</span>
+        {p.nickname && <span className="small muted">{p.species.german}</span>}
       </div>
       <div className="grid2" style={{ gap: 8 }}>
         {facts.map(([k, v]) => <div key={k} className="box" style={{ padding: '10px 12px' }}><div className="tiny">{k}</div><strong style={{ fontSize: 15 }}>{v}</strong></div>)}
+      </div>
+      {p.notes && <p className="box" style={{ whiteSpace: 'pre-wrap' }}>{p.notes}</p>}
+      {error && <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error.message}</p>}
+      <div className="grid2">
+        <a className="btn" href={`#/pflanze/${p.id}/bearbeiten`}>Bearbeiten</a>
+        <button className="btn" onClick={toggleArchive} disabled={busy}>{p.archived ? 'Wiederherstellen' : 'Archivieren'}</button>
       </div>
       <div className="tabs" role="tablist">
         {([['plan', 'Pflegeplan'], ['pests', 'Schädlinge'], ['history', 'Verlauf']] as const).map(([k, label]) => (
           <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>
         ))}
       </div>
+      {tab === 'plan' && <p className="box">Der Pflegeplan für {p.cultivar ? `‘${p.cultivar.name}’` : p.species.german} wird erstellt, sobald die KI angebunden ist (Meilenstein M5).</p>}
+      {tab === 'pests' && <p className="box">Typische Schädlinge und Krankheiten kommen mit dem Pflegeplan (M5).</p>}
+      {tab === 'history' && <p className="box">Noch nichts erledigt. Erledigte Aufgaben erscheinen hier (ab M3).</p>}
+      {p.species.woody && <span className="tiny">Gehölz: starke Rückschnitte nur 1.10.–28.2. (§ 39 BNatSchG).</span>}
+    </div>
+  );
+}
 
-      {tab === 'plan' && (
-        <div className="stack" style={{ gap: 4 }}>
-          {p.woody && p.id === 'rhapsodie' && <Legal>Regelprüfung: 1 Aufgabe angepasst. „Starker Verjüngungsschnitt“ von April auf Februar verschoben (§ 39 BNatSchG).</Legal>}
-          {p.plan.map((t) => (
-            <div key={t.title} className="planrow">
-              <strong style={{ color: 'var(--green)' }}>{MONTHS[t.month].slice(0, 3)}</strong>
-              <span className="stack" style={{ gap: 3 }}><Chip category={t.category} /><strong>{t.title}</strong><span className="small muted">{t.detail}</span></span>
-            </div>
+// ----- add / edit -----------------------------------------------------------
+
+const EMPTY: PlantIn = { species_id: '', cultivar_id: null, standort_id: '', nickname: null, form: null, rootstock: null, planted_year: null, girth_cm: null, in_container: false, notes: '' };
+const FIELD_TEXT: Record<string, string> = {
+  species_id: 'Bitte eine Pflanze aus den Vorschlägen wählen.', standort_id: 'Bitte einen Standort wählen.',
+  planted_year: 'Jahr zwischen 1900 und heute.', girth_cm: 'Stammumfang 1–1000 cm.',
+};
+// Field errors shown next to their input; any other invalid field shows the general box.
+const INLINE = new Set(Object.keys(FIELD_TEXT));
+
+export function PlantForm({ id }: { id?: string }) {
+  const [v, setV] = useState<PlantIn>(EMPTY);
+  const [query, setQuery] = useState('');
+  const [cands, setCands] = useState<Candidate[]>([]);
+  const [picked, setPicked] = useState<{ label: string; latin: string } | null>(null);
+  const [species, setSpecies] = useState<Species | null>(null);
+  const [newSorte, setNewSorte] = useState('');
+  const [standorte, setStandorte] = useState<Standort[]>([]);
+  const [error, setError] = useState<ApiError | null>(null);
+  const [saving, setSaving] = useState(false);
+  const seq = useRef(0);
+
+  useEffect(() => { api.standorte().then(setStandorte, (e) => setError(fail(e))); }, []);
+  useEffect(() => {
+    if (!id) return;
+    api.plant(id).then((p) => {
+      setV({ species_id: p.species.id, cultivar_id: p.cultivar?.id ?? null, standort_id: p.standort.id, nickname: p.nickname, form: p.form, rootstock: p.rootstock, planted_year: p.planted_year, girth_cm: p.girth_cm, in_container: p.in_container, notes: p.notes });
+      setPicked({ label: p.species.german, latin: p.species.latin });
+    }, (e) => setError(fail(e)));
+  }, [id]);
+  useEffect(() => {   // Sorten of the chosen species only; drop answers for an earlier choice
+    let current = true;
+    setSpecies(null);
+    if (v.species_id) api.species(v.species_id).then((x) => { if (current) setSpecies(x); }, () => undefined);
+    return () => { current = false; };
+  }, [v.species_id]);
+  useEffect(() => {   // debounced suggestions; only the newest answer counts
+    const q = query.trim();
+    if (!q) { setCands([]); return; }
+    const n = ++seq.current;
+    const t = window.setTimeout(() => api.resolve(q).then((r) => { if (n === seq.current) setCands(r.candidates); }, () => undefined), 250);
+    return () => window.clearTimeout(t);
+  }, [query]);
+
+  const set = (patch: Partial<PlantIn>) => setV((x) => ({ ...x, ...patch }));
+  function pick(c: Candidate) {
+    set({ species_id: c.species_id, cultivar_id: c.cultivar_id, form: c.form_hint ?? v.form });
+    setPicked({ label: c.german, latin: c.latin });
+    setNewSorte(c.cultivar_id ? '' : c.unmatched);
+    setQuery(''); setCands([]);
+  }
+
+  async function save() {
+    setSaving(true); setError(null);
+    try {
+      let cultivarId = v.cultivar_id;
+      if (!cultivarId && newSorte.trim() && v.species_id) {   // the API returns an existing Sorte in any spelling
+        cultivarId = (await api.createCultivar(v.species_id, newSorte.trim())).id;
+      }
+      const body = { ...v, cultivar_id: cultivarId };
+      const p = id ? await api.updatePlant(id, body) : await api.createPlant(body);
+      window.location.hash = `#/pflanze/${p.id}`;
+    } catch (e) { setError(fail(e)); } finally { setSaving(false); }
+  }
+  const fieldError = (f: string) => (error?.fields[f] ? FIELD_TEXT[f] ?? 'Ungültig.' : null);
+  const num = (s: string) => (s.trim() === '' ? null : Number.isFinite(Number(s)) ? Number(s) : -1);
+
+  return (
+    <div className="page">
+      <Back href={id ? `#/pflanze/${id}` : '#/pflanzen'} label="Abbrechen" />
+      <h1 className="title-s">{id ? 'Pflanze bearbeiten' : 'Pflanze hinzufügen'}</h1>
+
+      <div className="field">
+        <label htmlFor="name">Name (deutsch oder lateinisch, gern mit Sorte)</label>
+        <input id="name" className="input" autoComplete="off" placeholder="z. B. Säulenapfel Sonate" value={query}
+          onChange={(e) => setQuery(e.target.value)} style={{ border: '2px solid var(--green)' }} />
+        {picked && !query && <span className="small">Gewählt: <strong>{picked.label}</strong> <i className="muted">{picked.latin}</i></span>}
+        {fieldError('species_id') && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldError('species_id')}</span>}
+      </div>
+      <span className="sr-only" aria-live="polite">{query.trim() ? `${cands.length} Vorschläge` : ''}</span>
+      {query.trim() && (
+        <div className="stack" aria-label="Vorschläge">
+          {cands.length === 0 && <span className="small muted">Keine Vorschläge. Anders schreiben, z. B. lateinisch?</span>}
+          {cands.map((c) => (
+            <button key={`${c.species_id}-${c.cultivar_id}`} className="option" onClick={() => pick(c)}>
+              <span className="stack" style={{ gap: 3 }}>
+                <strong style={{ fontSize: 17 }}>{c.german}{c.cultivar_name ? ` ‘${c.cultivar_name}’` : ''}</strong>
+                <span className="small muted" style={{ fontStyle: 'italic' }}>{c.latin}</span>
+                {c.unmatched && <span className="small">Sorte ‘{c.unmatched}’ noch unbekannt – wird neu angelegt</span>}
+                {c.form_hint && <span className="small">Form: {c.form_hint}</span>}
+              </span>
+              <span className="radio" />
+            </button>
           ))}
-          <div className="grid2" style={{ paddingTop: 10 }}>
-            <button className="btn">Eigene Aufgabe</button>
-            <button className="btn">Plan neu erstellen</button>
+        </div>
+      )}
+
+      {v.species_id && (
+        <div className="field">
+          <label htmlFor="sorte">Sorte</label>
+          <select id="sorte" className="input" value={v.cultivar_id ?? (newSorte ? '__new' : '')}
+            onChange={(e) => { const x = e.target.value; set({ cultivar_id: x && x !== '__new' ? x : null }); if (x !== '__new') setNewSorte(''); else setNewSorte(newSorte || ' '); }}>
+            <option value="">unbekannt</option>
+            {species?.cultivars.map((c) => <option key={c.id} value={c.id}>{c.name}</option>)}
+            <option value="__new">+ andere Sorte …</option>
+          </select>
+          {!v.cultivar_id && newSorte !== '' && (
+            <input className="input" aria-label="Neue Sorte" placeholder="Name der Sorte" value={newSorte.trimStart()} onChange={(e) => setNewSorte(e.target.value)} />
+          )}
+        </div>
+      )}
+
+      <StandortPicker standorte={standorte} value={v.standort_id} onChange={(sid) => set({ standort_id: sid })}
+        onCreated={(s) => { setStandorte((xs) => [...xs, s].sort((a, b) => a.name.localeCompare(b.name))); set({ standort_id: s.id }); }} />
+      {fieldError('standort_id') && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldError('standort_id')}</span>}
+
+      <div className="grid2">
+        <div className="field">
+          <label htmlFor="form">Wuchsform</label>
+          <select id="form" className="input" value={v.form ?? ''} onChange={(e) => set({ form: (e.target.value || null) as Form | null })}>
+            <option value="">–</option>
+            {FORMS.map((f) => <option key={f}>{f}</option>)}
+          </select>
+        </div>
+        <div className="field">
+          <label htmlFor="year">Gepflanzt (Jahr)</label>
+          <input id="year" className="input" inputMode="numeric" value={v.planted_year ?? ''} onChange={(e) => set({ planted_year: num(e.target.value) })} aria-invalid={!!fieldError('planted_year')} />
+        </div>
+      </div>
+      {fieldError('planted_year') && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldError('planted_year')}</span>}
+      <div className="field">
+        <label htmlFor="nick">Spitzname (optional)</label>
+        <input id="nick" className="input" maxLength={60} placeholder="z. B. Apfel am Weg" value={v.nickname ?? ''} onChange={(e) => set({ nickname: e.target.value || null })} />
+      </div>
+      <div className="setrow" style={{ borderBottom: 0 }}>
+        <span id="kuebel-label">Im Kübel</span>
+        <button className="switch" role="switch" aria-checked={v.in_container} aria-labelledby="kuebel-label" onClick={() => set({ in_container: !v.in_container })}><span /></button>
+      </div>
+      <details>
+        <summary style={{ minHeight: 44, display: 'flex', alignItems: 'center', cursor: 'pointer', fontWeight: 700 }}>Mehr Angaben (Unterlage, Stammumfang, Notizen)</summary>
+        <div className="stack" style={{ gap: 12 }}>
+          <div className="grid2">
+            <div className="field"><label htmlFor="root">Unterlage</label><input id="root" className="input" maxLength={40} placeholder="z. B. M9" value={v.rootstock ?? ''} onChange={(e) => set({ rootstock: e.target.value || null })} /></div>
+            <div className="field"><label htmlFor="girth">Stammumfang (cm)</label><input id="girth" className="input" inputMode="numeric" value={v.girth_cm ?? ''} onChange={(e) => set({ girth_cm: num(e.target.value) })} /></div>
           </div>
-          <span className="tiny">Erstellt von Claude für Sorte, Form und Standort dieser Pflanze. Kein Gießen – das planst du selbst.</span>
+          {fieldError('girth_cm') && <span className="small" style={{ color: 'var(--urgent)' }}>{fieldError('girth_cm')}</span>}
+          <div className="field"><label htmlFor="notes">Notizen</label><textarea id="notes" className="input" maxLength={1000} rows={3} value={v.notes} onChange={(e) => set({ notes: e.target.value })} /></div>
         </div>
+      </details>
+
+      {error && (Object.keys(error.fields).length === 0 || Object.keys(error.fields).some((f) => !INLINE.has(f))) && (
+        <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error.message}</p>
       )}
-      {tab === 'pests' && (
-        <div className="stack" style={{ gap: 10 }}>
-          {p.pests.length === 0 && <p className="box">Keine typischen Schädlinge oder Krankheiten bekannt.</p>}
-          {p.pests.map((x) => (
-            <div key={x.name} className="outline stack" style={{ gap: 6 }}>
-              <div className="between"><strong style={{ fontSize: 17 }}>{x.name}</strong><span className="tiny">{x.time}</span></div>
-              <span><strong>Vorbeugen:</strong> {x.prevent}</span>
-              <span><strong>Bei Befall:</strong> {x.treat}</span>
-            </div>
-          ))}
-        </div>
-      )}
-      {tab === 'history' && (
-        <div className="stack" style={{ gap: 0 }}>
-          {p.history.length === 0 && <p className="box">Noch nichts erledigt.</p>}
-          {p.history.map((h) => (
-            <div key={h.date + h.title} className="planrow" style={{ gridTemplateColumns: '72px minmax(0, 1fr)' }}>
-              <span className="small muted">{h.date}</span>
-              <span className="stack" style={{ gap: 2 }}><strong>✓ {h.title}</strong>{h.note && <span className="small muted">{h.note}</span>}</span>
-            </div>
-          ))}
+      <button className="btn primary" onClick={save} disabled={saving || !v.species_id || !v.standort_id}>
+        {saving ? 'Speichert …' : id ? 'Speichern' : 'Pflanze anlegen'}
+      </button>
+      {!id && <span className="tiny" style={{ textAlign: 'center' }}>Den Pflegeplan erstellt später die KI (M5).</span>}
+    </div>
+  );
+}
+
+function StandortPicker({ standorte, value, onChange, onCreated }: { standorte: Standort[]; value: string; onChange: (id: string) => void; onCreated: (s: Standort) => void }) {
+  const [adding, setAdding] = useState(false);
+  const [name, setName] = useState('');
+  const [light, setLight] = useState<Light>('sonnig');
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function add() {
+    if (busy) return;
+    setErr(''); setBusy(true);
+    try { onCreated(await api.createStandort({ name, light, type: 'beet', notes: '' })); setAdding(false); setName(''); }
+    catch (e) { setErr(e instanceof ApiError && e.status === 409 ? 'Diesen Standort gibt es schon.' : e instanceof ApiError && e.status === 422 ? 'Bitte einen Namen (max. 60 Zeichen) eingeben.' : fail(e).message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="stack">
+      <span className="label">Standort</span>
+      <div className="row" role="group" aria-label="Standort">
+        {standorte.map((s) => <button key={s.id} className="seg" aria-pressed={value === s.id} onClick={() => onChange(s.id)}>{s.name}</button>)}
+        <button className="seg" aria-pressed={adding} onClick={() => setAdding(!adding)}>+ Neuer Standort</button>
+      </div>
+      {adding && (
+        <div className="outline stack" style={{ gap: 10 }}>
+          <div className="field"><label htmlFor="sname">Name</label><input id="sname" className="input" maxLength={60} value={name} onChange={(e) => setName(e.target.value)} placeholder="z. B. Beet am Zaun" /></div>
+          <div className="row" role="group" aria-label="Licht">
+            {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={light === l} onClick={() => setLight(l)}>{l}</button>)}
+          </div>
+          {err && <span className="small" style={{ color: 'var(--urgent)' }}>{err}</span>}
+          <button className="btn" onClick={add} disabled={busy}>{busy ? 'Legt an …' : 'Standort anlegen'}</button>
+          <span className="tiny">Art und Notizen später unter Mehr → Standorte.</span>
         </div>
       )}
     </div>
   );
 }
 
-export function AddPlant() {
-  const [name, setName] = useState('Felsenbrine Obelisk');
-  const [cand, setCand] = useState(0);
-  const [site, setSite] = useState('hecke');
-  const [saved, setSaved] = useState(false);
-  if (saved) {
-    return (
-      <div className="page">
-        <h1 className="title-s">Angelegt</h1>
-        <p className="box">Im fertigen Programm erstellt Claude jetzt im Hintergrund den Pflegeplan (ca. 30 Sekunden). Im Prototyp geht es zur Beispiel-Felsenbirne.</p>
-        <a className="btn primary" href="#/pflanze/obelisk">Zur Pflanze</a>
-      </div>
-    );
+// ----- Standorte (Mehr → Standorte) --------------------------------------------
+
+export function Standorte() {
+  const [list, setList] = useState<Standort[] | null>(null);
+  const [edit, setEdit] = useState<Standort | 'new' | null>(null);
+  const [msg, setMsg] = useState('');
+  const load = () => api.standorte().then(setList, (e) => setMsg(fail(e).message));
+  useEffect(() => { load(); }, []);
+  async function remove(s: Standort) {
+    setMsg('');
+    try { await api.deleteStandort(s.id); load(); }
+    catch (e) { setMsg(e instanceof ApiError && e.status === 409 ? `„${s.name}“ hat noch Pflanzen (auch archivierte) und kann nicht gelöscht werden.` : fail(e).message); }
   }
   return (
     <div className="page">
-      <Back href="#/pflanzen" label="Abbrechen" />
-      <h1 className="title-s">Pflanze hinzufügen</h1>
-      <div className="field">
-        <label htmlFor="name">Name (deutsch oder lateinisch, mit Sorte)</label>
-        <input id="name" className="input" style={{ border: '2px solid var(--green)' }} value={name} onChange={(e) => setName(e.target.value)} />
+      <Back href="#/mehr" label="Mehr" />
+      <div className="between"><h1 className="title-s">Standorte</h1><button className="btn" onClick={() => setEdit('new')}>+ Neu</button></div>
+      <span className="small muted">Orte im Garten mit Licht – wichtig für Pflege und Aussaat.</span>
+      {msg && <p className="box" role="alert">{msg}</p>}
+      {edit && <StandortEditor s={edit === 'new' ? null : edit} onDone={() => { setEdit(null); load(); }} />}
+      {list?.length === 0 && !edit && <p className="box">Noch keine Standorte. Sie entstehen auch beim Anlegen einer Pflanze.</p>}
+      {list?.map((s) => (
+        <div key={s.id} className="card stack" style={{ gap: 6 }}>
+          <div className="between"><strong style={{ fontSize: 17 }}>{s.name}</strong><LightChip light={s.light} /></div>
+          <span className="small muted">{STANDORT_TYPES[s.type]} · {s.plant_count} {s.plant_count === 1 ? 'Pflanze' : 'Pflanzen'}{s.notes ? ` · ${s.notes}` : ''}</span>
+          <div className="grid2"><button className="btn" onClick={() => setEdit(s)}>Bearbeiten</button><button className="btn" onClick={() => remove(s)}>Löschen</button></div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void }) {
+  const [v, setV] = useState({ name: s?.name ?? '', light: s?.light ?? ('sonnig' as Light), type: s?.type ?? ('beet' as Standort['type']), notes: s?.notes ?? '' });
+  const [err, setErr] = useState('');
+  const [busy, setBusy] = useState(false);
+  async function save() {
+    if (busy) return;
+    setErr(''); setBusy(true);
+    try { if (s) await api.updateStandort(s.id, v); else await api.createStandort(v); onDone(); }
+    catch (e) { setErr(e instanceof ApiError && e.status === 409 ? 'Diesen Namen gibt es schon.' : e instanceof ApiError && e.status === 422 ? 'Bitte Eingaben prüfen (Name 1–60 Zeichen).' : fail(e).message); }
+    finally { setBusy(false); }
+  }
+  return (
+    <div className="outline stack" style={{ gap: 12 }}>
+      <div className="field"><label htmlFor="sn">Name</label><input id="sn" className="input" maxLength={60} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></div>
+      <div className="row" role="group" aria-label="Licht">
+        {(['sonnig', 'halbschattig', 'schattig'] as Light[]).map((l) => <button key={l} className="seg" aria-pressed={v.light === l} onClick={() => setV({ ...v, light: l })}>{l}</button>)}
       </div>
-      <fieldset className="stack" style={{ border: 0, margin: 0, padding: 0 }}>
-        <legend className="label" style={{ paddingBottom: 8 }}>Meinten Sie …</legend>
-        {NAME_SUGGESTIONS.map((c, i) => (
-          <button key={c.de} className="option" aria-pressed={cand === i} onClick={() => setCand(i)}>
-            <span className="stack" style={{ gap: 3 }}>
-              <strong style={{ fontSize: 17 }}>{c.de}</strong>
-              <span className="small muted" style={{ fontStyle: 'italic' }}>{c.latin}</span>
-              {c.hint && <span className="small">{c.hint}</span>}
-            </span>
-            <span className="radio" />
-          </button>
+      <div className="field"><label htmlFor="st">Art</label>
+        <select id="st" className="input" value={v.type} onChange={(e) => setV({ ...v, type: e.target.value as Standort['type'] })}>
+          {Object.entries(STANDORT_TYPES).map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+        </select>
+      </div>
+      <div className="field"><label htmlFor="sno">Notizen</label><input id="sno" className="input" maxLength={500} value={v.notes} onChange={(e) => setV({ ...v, notes: e.target.value })} /></div>
+      {err && <span className="small" style={{ color: 'var(--urgent)' }}>{err}</span>}
+      <div className="grid2"><button className="btn" onClick={onDone}>Abbrechen</button><button className="btn" style={{ background: 'var(--green)', color: 'var(--green-ink)', border: 0, fontWeight: 700 }} onClick={save} disabled={busy}>{busy ? 'Speichert …' : 'Speichern'}</button></div>
+    </div>
+  );
+}
+
+// ----- demo plant (links from the demo Heute / Kalender until M3) ------------
+
+function DemoPlantDetail({ id }: { id: string }) {
+  const p = plantById(id)!;
+  const [tab, setTab] = useState<'plan' | 'pests' | 'history'>('plan');
+  const site = standortById(p.standortId);
+  return (
+    <div className="page">
+      <Back href="#/heute" label="Heute" />
+      <span className="chip" style={{ background: 'var(--legal-tint)', color: 'var(--legal-ink)' }}>Beispiel aus der Vorschau</span>
+      <div className="stack" style={{ gap: 4 }}>
+        <h1 className="title-s">{p.name}</h1>
+        <span className="muted" style={{ fontStyle: 'italic' }}>{p.latin}</span>
+      </div>
+      <div className="grid2" style={{ gap: 8 }}>
+        {[['Standort', `${site?.name} · ${site?.light}`], ['Form', p.form], ['Gepflanzt', String(p.planted)], ['Winterhart', p.hardy]].map(([k, v]) => (
+          <div key={k} className="box" style={{ padding: '10px 12px' }}><div className="tiny">{k}</div><strong style={{ fontSize: 15 }}>{v}</strong></div>
         ))}
-        <span className="tiny">„Felsenbrine“ als Tippfehler erkannt. Vorschläge von Claude – die Auswahl triffst du.</span>
-      </fieldset>
-      <div className="stack" style={{ gap: 14, borderTop: '1px solid var(--line)', paddingTop: 14 }}>
-        <div className="stack">
-          <span className="label">Standort</span>
-          <div className="row">
-            {STANDORTE.slice(0, 5).map((s) => <button key={s.id} className="seg" aria-pressed={site === s.id} onClick={() => setSite(s.id)}>{s.name}</button>)}
-            <button className="seg" aria-pressed={false}>+ Neuer Standort</button>
-          </div>
-        </div>
-        <div className="grid2">
-          <div className="field">
-            <label htmlFor="form">Wuchsform</label>
-            <select id="form" className="input"><option>Säule</option><option>Strauch</option><option>Hecke</option><option>Kübel</option></select>
-          </div>
-          <div className="field">
-            <label htmlFor="year">Gepflanzt</label>
-            <input id="year" className="input" inputMode="numeric" defaultValue="2023" />
-          </div>
-        </div>
-        <div className="field">
-          <label htmlFor="nick">Spitzname (optional)</label>
-          <input id="nick" className="input" placeholder="z. B. Felsenbirne an der Bank" />
-        </div>
       </div>
-      <button className="btn primary" onClick={() => setSaved(true)}>Anlegen und Pflegeplan erstellen</button>
+      <div className="tabs" role="tablist">
+        {([['plan', 'Pflegeplan'], ['pests', 'Schädlinge'], ['history', 'Verlauf']] as const).map(([k, label]) => (
+          <button key={k} role="tab" aria-selected={tab === k} onClick={() => setTab(k)}>{label}</button>
+        ))}
+      </div>
+      {tab === 'plan' && (
+        <div className="stack" style={{ gap: 4 }}>
+          {p.id === 'rhapsodie' && <Legal>Regelprüfung: 1 Aufgabe angepasst. „Starker Verjüngungsschnitt“ von April auf Februar verschoben (§ 39 BNatSchG).</Legal>}
+          {p.plan.map((t) => (
+            <div key={t.title} className="planrow">
+              <strong style={{ color: 'var(--green)' }}>{MONTHS[t.month].slice(0, 3)}</strong>
+              <span className="stack" style={{ gap: 3 }}><Chip category={t.category} /><strong>{t.title}</strong><span className="small muted">{t.detail}</span></span>
+            </div>
+          ))}
+        </div>
+      )}
+      {tab === 'pests' && p.pests.map((x) => (
+        <div key={x.name} className="outline stack" style={{ gap: 6 }}>
+          <div className="between"><strong style={{ fontSize: 17 }}>{x.name}</strong><span className="tiny">{x.time}</span></div>
+          <span><strong>Vorbeugen:</strong> {x.prevent}</span>
+          <span><strong>Bei Befall:</strong> {x.treat}</span>
+        </div>
+      ))}
+      {tab === 'history' && p.history.map((h) => (
+        <div key={h.date + h.title} className="planrow" style={{ gridTemplateColumns: '72px minmax(0, 1fr)' }}>
+          <span className="small muted">{h.date}</span>
+          <span className="stack" style={{ gap: 2 }}><strong>✓ {h.title}</strong>{h.note && <span className="small muted">{h.note}</span>}</span>
+        </div>
+      ))}
     </div>
   );
 }
