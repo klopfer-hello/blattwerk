@@ -30,7 +30,7 @@ GitHub token	gh[pousr]_[A-Za-z0-9]{30,}
 EOF
 )
 # Matches of these kinds that are fine (public commit identity, placeholders).
-OK_RE='^(forkent@icloud\.com|noreply@anthropic\.com|noreply@github\.com|.*@users\.noreply\.github\.com|.*@example\.(com|org|net|invalid)|.*example\.(lan|home|internal).*)$'
+OK_RE='^(forkent@icloud\.com|noreply@anthropic\.com|noreply@github\.com|support@github\.com|.*@users\.noreply\.github\.com|.*@example\.(com|org|net|invalid)|.*example\.(lan|home|internal).*)$'
 
 TMP=$(mktemp -d); trap 'rm -rf "$TMP"' EXIT
 : >"$TMP/records"   # one record per candidate: <where>\x1f<text>
