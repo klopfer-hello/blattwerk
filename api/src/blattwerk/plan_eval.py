@@ -4,7 +4,7 @@ Runs a fixed set of plants and typed names through the same prompt, CLI call and
 validation as the worker, writes nothing, and checks the answers with simple,
 deterministic rules (strong cuts only in the § 39 window, harvest in the Sorte's
 season, product hints, name resolution of the F-PL-1 test cases).
-Run in the worker container: python -m blattwerk.plan_eval [--plans|--names]
+Run in the worker container: python -m blattwerk.plan_eval [--plans|--names|--indoor]
 Exit code 1 when a check fails; costs about USD 0.5 per full run."""
 
 import asyncio
@@ -91,6 +91,70 @@ def F(latin: str, german: str, cultivar: str | None, form: str | None, *, rootst
                           bundesland="Sachsen", fertiliser="gemischt", eco_defaults=True)  # fmt: skip
 
 
+# ----- indoor plants (M11) ------------------------------------------------------------------
+
+
+def watering(summer: tuple[int, int], winter_min: int = 0, ml: tuple[int, int] | None = None) -> Check:
+    """One watering task: summer rhythm in range, winter not more often (and at least winter_min), amount."""
+
+    def check(p: plan.Plan) -> str | None:
+        w = [t for t in p.tasks if t.category == "giessen"]
+        if len(w) != 1:
+            return f"{len(w)} Gieß-Aufgaben statt 1"
+        t, problems = w[0], []
+        if t.recurrence != "interval" or t.interval_days is None:
+            return f"Gießen nicht als Intervall: {t.recurrence}"
+        if not summer[0] <= t.interval_days <= summer[1]:
+            problems.append(f"Gießen alle {t.interval_days} Tage statt {summer[0]}-{summer[1]}")
+        winter = t.winter_interval_days or t.interval_days
+        if winter < max(t.interval_days, winter_min):
+            problems.append(f"Winter alle {winter} Tage (Sommer {t.interval_days}, mindestens {winter_min})")
+        if ml is not None and not (t.amount_ml and ml[0] <= t.amount_ml <= ml[1]):
+            problems.append(f"Menge {t.amount_ml} ml statt {ml[0]}-{ml[1]}")
+        return "; ".join(problems) or None
+
+    return check
+
+
+def has(category: str) -> Check:
+    return lambda p: None if any(t.category == category for t in p.tasks) else f"keine Aufgabe {category}"
+
+
+def lacks(category: str) -> Check:
+    def check(p: plan.Plan) -> str | None:
+        bad = [t.title for t in p.tasks if t.category == category]
+        return f"{category} gehört nicht dazu: {bad}" if bad else None
+
+    return check
+
+
+def no_title(pattern: str) -> Check:
+    def check(p: plan.Plan) -> str | None:
+        bad = [t.title for t in p.tasks if re.search(pattern, t.title, re.IGNORECASE)]
+        return f"abgeschaltet und trotzdem da: {bad}" if bad else None
+
+    return check
+
+
+def indoor_basics(p: plan.Plan) -> str | None:
+    problems = []
+    garden = [t.title for t in p.tasks if t.category in ("winterschutz", "ernte", "aussaat") or t.pheno_phase]
+    if garden:
+        problems.append(f"Garten-Aufgaben: {garden}")
+    rest = [t.title for t in p.tasks if t.category == "duengen" and months(t.month_from, t.month_to) & {11, 12, 1}]
+    if rest:
+        problems.append(f"Düngen im Winter: {rest}")
+    return "; ".join(problems) or None
+
+
+def room(latin: str, german: str, window: str, distance: str, pot_cm: int, material: str, height: int,
+         declined: tuple[str, ...] = ()) -> plan.PlanFacts:  # fmt: skip
+    return plan.PlanFacts(latin=latin, german=german, cultivar=None, form=None, rootstock=None, planted_year=None,
+                          in_container=True, light=None, standort_type="zimmer", bundesland="Sachsen",
+                          fertiliser="gemischt", eco_defaults=True, window=window, window_distance=distance,
+                          pot_cm=pot_cm, pot_material=material, height_cm=height, declined=declined)  # fmt: skip
+
+
 @dataclass
 class PlantCase:
     key: str
@@ -117,6 +181,20 @@ PLANTS = [
               [strong_cuts_in_winter]),
 ]  # fmt: skip
 
+INDOOR = [
+    PlantCase("efeutute", room("Epipremnum aureum", "Efeutute", "O", "bis_1m", 14, "kunststoff", 60,
+                            declined=("Pflanze drehen",)),
+              [watering((5, 14), ml=(100, 600)), no_title(r"dreh")]),
+    PlantCase("monstera", room("Monstera deliciosa", "Monstera", "O", "1_2m", 24, "kunststoff", 120),
+              [watering((5, 14), ml=(300, 1500)), has("entstauben")]),
+    PlantCase("kaktus", room("Mammillaria", "Warzenkaktus", "S", "fensterbank", 10, "ton", 10),
+              [watering((10, 30), winter_min=30, ml=(10, 150)), lacks("bespruehen")]),
+    PlantCase("calathea", room("Goeppertia", "Calathea", "N", "bis_1m", 17, "kunststoff", 50),
+              [watering((3, 10)), has("bespruehen")]),
+    PlantCase("orchidee", room("Phalaenopsis", "Orchidee", "O", "fensterbank", 12, "glas", 40),
+              [watering((5, 14))]),
+]  # fmt: skip
+
 # the F-PL-1 cases: (typed, Latin starts with, Sorte contains, form)
 NAMES = [
     ("Prunus AV. Celeste Säule", "Prunus avium", "celeste", "Säule"),
@@ -133,10 +211,12 @@ async def eval_plant(case: PlantCase, sem: asyncio.Semaphore) -> tuple[bool, str
         t0 = time.monotonic()
         try:
             cfg = Config()
-            raw, info = await run_json(config_from_env(), plan.build_prompt(case.facts), plan.SYSTEM, plan.SCHEMA,
+            system = plan.system_for(case.facts)
+            raw, info = await run_json(config_from_env(), plan.build_prompt(case.facts), system, plan.SCHEMA,
                                        model=cfg.plan_model, budget_usd=cfg.plan_budget_usd)  # fmt: skip
-            p = plan.sanitize(raw)
-            problems = [msg for check in [basics, *case.checks] if (msg := check(p))]
+            p = plan.sanitize(raw, indoor=case.facts.indoor)
+            common = [basics, indoor_basics] if case.facts.indoor else [basics]
+            problems = [msg for check in [*common, *case.checks] if (msg := check(p))]
         except Exception as e:  # one broken case must not hide the others
             return False, f"FAIL {case.key}: {type(e).__name__}: {e}"
         head = (f"{'ok  ' if not problems else 'FAIL'} {case.key}: {len(p.tasks)} Aufgaben, {p.confidence}, "
@@ -171,13 +251,15 @@ async def eval_name(
 
 
 async def main(which: str) -> int:
-    if which not in ("all", "--plans", "--names"):
-        print("usage: python -m blattwerk.plan_eval [--plans|--names]")
+    if which not in ("all", "--plans", "--names", "--indoor"):
+        print("usage: python -m blattwerk.plan_eval [--plans|--names|--indoor]")
         return 2
     sem = asyncio.Semaphore(3)
     jobs = []
     if which in ("all", "--plans"):
         jobs += [eval_plant(c, sem) for c in PLANTS]
+    if which in ("all", "--indoor"):
+        jobs += [eval_plant(c, sem) for c in INDOOR]
     if which in ("all", "--names"):
         jobs += [eval_name(*n, sem) for n in NAMES]
     results = await asyncio.gather(*jobs)

@@ -7,5 +7,5 @@ cd "$(dirname "$0")/.."
 [[ -f scripts/deploy.local.env ]] || { echo "missing scripts/deploy.local.env" >&2; exit 1; }
 source scripts/deploy.local.env
 arg=${1:-all}
-case $arg in all|--plans|--names) ;; *) echo "usage: $0 [--plans|--names]" >&2; exit 2 ;; esac
+case $arg in all|--plans|--names|--indoor) ;; *) echo "usage: $0 [--plans|--names|--indoor]" >&2; exit 2 ;; esac
 exec ssh -o BatchMode=yes "$DEPLOY_HOST" docker exec blattwerk-worker python -m blattwerk.plan_eval "$arg"
