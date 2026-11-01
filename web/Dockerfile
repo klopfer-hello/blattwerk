@@ -7,7 +7,11 @@ COPY . .
 ARG VERSION=dev
 RUN npm run build && echo "$VERSION" > dist/version.txt
 
-FROM nginxinc/nginx-unprivileged:1.29.8-alpine
+# 13 days old when taken (2026-11-01): early, for the HIGH fix CVE-2026-15176. Pinned by digest.
+FROM nginxinc/nginx-unprivileged:1.30.6-alpine@sha256:f5116ed4606f3eb015dd4a8e28cb9b351476dc0ad4bc6e9f93b19cec130cdf03
+USER root
+RUN apk upgrade --no-cache  # the distribution's security fixes since the base image was built (CI: Trivy)
+USER 101
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY security-headers.conf /etc/nginx/security-headers.conf
 COPY --from=build /src/dist /usr/share/nginx/html

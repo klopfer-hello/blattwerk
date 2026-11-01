@@ -16,7 +16,9 @@ CMD ["sh", "-c", "uv run --frozen --no-sync ruff check . && uv run --frozen --no
 
 FROM python:3.13.16-slim-trixie AS runtime
 RUN useradd --system --uid 10001 --no-create-home app \
- && mkdir /claude && chown 10001 /claude  # a new named volume takes this owner (CLI installed at runtime)
+ && mkdir /claude && chown 10001 /claude \
+ && python -m pip uninstall -y -q pip  # not needed at runtime; its vendored copies (urllib3, msgpack, ...) age
+# /claude: a new named volume takes this owner (the Claude Code CLI is installed there at runtime)
 COPY --from=build /app/.venv /app/.venv
 ARG VERSION=dev
 ENV PATH=/app/.venv/bin:$PATH PYTHONDONTWRITEBYTECODE=1 BW_VERSION=$VERSION

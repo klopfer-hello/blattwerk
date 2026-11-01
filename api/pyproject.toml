@@ -37,6 +37,8 @@ packages = ["src/blattwerk"]
 [tool.uv]
 # Only releases at least two weeks old (supply-chain hygiene, see the security rules).
 exclude-newer = "2026-10-17T00:00:00Z"
+# Exception for a CRITICAL fix (compromised root CAs, GHSA-6q48-6c7w-9gw2): 13 days old when taken on 2026-11-01.
+exclude-newer-package = { certifi = "2026-10-19T00:00:00Z" }
 
 [tool.ruff]
 line-length = 120
