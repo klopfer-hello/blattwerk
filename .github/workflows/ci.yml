@@ -1,0 +1,99 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Tests (api lint/types/pytest + web build)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: bash scripts/test.sh
+
+  audit:
+    name: Dependency audit
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@1c37ad07a6a961277cf70c0d37d6f313000f5884 # v10.3.0
+      - name: pip-audit (locked api dependencies)
+        working-directory: api
+        run: |
+          uv export --frozen --no-dev --no-hashes --no-emit-project > "$RUNNER_TEMP/requirements.txt"
+          uvx pip-audit==2.9.0 --strict -r "$RUNNER_TEMP/requirements.txt"
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: npm audit (runtime dependencies)
+        working-directory: web
+        run: npm audit --omit=dev --audit-level=high
+
+  images:
+    name: Images (build, Trivy, no Claude CLI inside)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: api
+          target: runtime
+          load: true
+          tags: blattwerk-api:ci
+          build-args: VERSION=ci+${{ github.sha }}
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: web
+          load: true
+          tags: blattwerk-web:ci
+          build-args: VERSION=ci+${{ github.sha }}
+      - name: No Claude Code CLI in the images (it is installed at runtime, ADR 0002)
+        run: bash scripts/check-image.sh blattwerk-api:ci blattwerk-web:ci
+      - name: Trivy (api)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: blattwerk-api:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Trivy (web)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: blattwerk-web:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+
+  scans:
+    name: Secrets and personal data
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: gitleaks (whole history)
+        run: bash scripts/gitleaks.sh commits "--all"
+      - name: privacy scan (whole history, generic patterns)
+        run: bash scripts/privacy-scan.sh --commits --all

@@ -1,0 +1,26 @@
+version: 2
+updates:
+  - package-ecosystem: uv
+    directory: /api
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14   # new versions are at least two weeks old (supply-chain rule)
+  - package-ecosystem: npm
+    directory: /web
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: docker
+    directories: [/api, /web]
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    cooldown:
+      default-days: 14
