@@ -166,6 +166,22 @@ def done_now(page: Page, problems: list[str]) -> None:
         problems.append("iphone/zimmerpflanze: 'Heute gemacht' does not work")
 
 
+def edit_room(page: Page, problems: list[str]) -> None:
+    """Standorte: "Bearbeiten" on the last card opens its form right there (not off-screen at the top)."""
+    try:
+        page.get_by_role("button", name="Bearbeiten").last.click()
+        name = page.locator("#sn")  # the form's first field
+        name.wait_for(timeout=5000)
+        page.wait_for_timeout(600)  # smooth scroll
+        top = page.evaluate("e => e.getBoundingClientRect().top", name.element_handle())
+        if not 0 <= top < page.viewport_size["height"]:
+            problems.append(f"iphone/standorte: the edit form opens outside the screen (top {top:.0f}px)")
+        page.screenshot(path=str(OUT / "iphone-standorte-bearbeiten.png"))
+        page.get_by_role("button", name="Abbrechen").click()
+    except Exception:
+        problems.append("iphone/standorte: 'Bearbeiten' does not open a form")
+
+
 def soil(page: Page, problems: list[str]) -> None:
     """Indoor watering: tick it off, answer how the soil was (the rhythm adapts)."""
     try:
@@ -211,6 +227,8 @@ def main() -> None:
                     photo(page, size, problems)
                 if name == "chat-foto":
                     large_view(page, size, problems)
+                if name == "standorte" and size == "iphone":
+                    edit_room(page, problems)
                 if name == "heute" and size == "iphone":
                     soil(page, problems)
                 if name == "zimmerpflanze" and size == "iphone":

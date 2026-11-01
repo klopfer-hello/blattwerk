@@ -783,9 +783,11 @@ export function Standorte() {
       <div className="between"><h1 className="title-s">Standorte</h1><button className="btn" onClick={() => setEdit('new')}>+ Neu</button></div>
       <span className="small muted">Orte im Garten und Zimmer im Haus, mit Licht – wichtig für Pflege, Gießen und Wetterwarnungen.</span>
       {msg && <p className="box" role="alert">{msg}</p>}
-      {edit && <StandortEditor s={edit === 'new' ? null : edit} onDone={() => { setEdit(null); load(); }} />}
+      {edit === 'new' && <StandortEditor s={null} onDone={() => { setEdit(null); load(); }} />}
       {list?.length === 0 && !edit && <p className="box">Noch keine Standorte. Sie entstehen auch beim Anlegen einer Pflanze.</p>}
-      {list?.map((s) => (
+      {list?.map((s) => (edit !== 'new' && edit?.id === s.id)
+        ? <StandortEditor key={s.id} s={s} onDone={() => { setEdit(null); load(); }} />  // in place of its card, not off-screen at the top
+        : (
         <div key={s.id} className="card stack" style={{ gap: 6 }}>
           <div className="between"><strong style={{ fontSize: 17 }}>{s.name} {s.type === INDOOR_TYPE && !s.windows?.length && <MissingHint items={['Fensterrichtung']} />}</strong><LightChip light={s.light} /></div>
           <span className="small muted">{s.type === INDOOR_TYPE ? `Drinnen${s.windows?.length ? ` · Fenster nach ${s.windows.map((d) => DIRECTIONS[d]).join(', ')}` : ' · ohne Fenster'}` : `Draußen · ${STANDORT_TYPES[s.type]}`} · {s.plant_count} {s.plant_count === 1 ? 'Pflanze' : 'Pflanzen'}{s.notes ? ` · ${s.notes}` : ''}</span>
@@ -801,6 +803,8 @@ function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void 
   const inside = v.type === INDOOR_TYPE;
   const [err, setErr] = useState('');
   const [busy, setBusy] = useState(false);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => { box.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, []);
   async function save() {
     if (busy) return;
     setErr(''); setBusy(true);
@@ -810,7 +814,7 @@ function StandortEditor({ s, onDone }: { s: Standort | null; onDone: () => void 
     finally { setBusy(false); }
   }
   return (
-    <div className="outline stack" style={{ gap: 12 }}>
+    <div ref={box} className="outline stack" style={{ gap: 12 }}>
       <div className="field"><label htmlFor="sn">Name</label><input id="sn" className="input" maxLength={60} value={v.name} onChange={(e) => setV({ ...v, name: e.target.value })} /></div>
       <InOut indoor={inside} onChange={(i) => setV({ ...v, type: i ? INDOOR_TYPE : 'beet', light: v.light ?? 'sonnig' })} />
       {!inside && (
