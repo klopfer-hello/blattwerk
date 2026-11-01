@@ -1,7 +1,7 @@
 # API image. build: locked deps + the package (non-editable) into /app/.venv.
 # test: adds the dev tools and runs lint, types and tests (scripts/test.sh).
 # runtime: plain Python, non-root, only the venv.
-FROM ghcr.io/astral-sh/uv:0.13.1-python3.13-trixie-slim AS build
+FROM ghcr.io/astral-sh/uv:0.13.1-python3.14-trixie-slim AS build
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
@@ -14,7 +14,9 @@ COPY tests ./tests
 RUN uv sync --frozen --no-editable
 CMD ["sh", "-c", "uv run --frozen --no-sync ruff check . && uv run --frozen --no-sync ruff format --check . && uv run --frozen --no-sync mypy && uv run --frozen --no-sync pytest"]
 
-FROM python:3.13.16-slim-trixie AS runtime
+FROM python:3.14.7-slim-trixie AS runtime
+# the distribution's security fixes since the base image was built (CI: Trivy)
+RUN apt-get update -qq && apt-get upgrade -y -qq --no-install-recommends >/dev/null && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --no-create-home app \
  && mkdir /claude && chown 10001 /claude \
  && python -m pip uninstall -y -q pip  # not needed at runtime; its vendored copies (urllib3, msgpack, ...) age

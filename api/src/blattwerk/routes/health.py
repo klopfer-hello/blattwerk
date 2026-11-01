@@ -17,7 +17,7 @@ async def healthz(request: Request) -> JSONResponse:
         async with get_engine(request).connect() as c:
             await c.execute(text("SELECT 1"))
         db = "ok"
-    except (SQLAlchemyError, OSError):
+    except SQLAlchemyError, OSError:
         db = "error"
     body = {"status": "ok" if db == "ok" else "error", "version": request.app.state.config.version, "db": db}
     return JSONResponse(body, status_code=200 if db == "ok" else 503, headers={"Cache-Control": "no-store"})

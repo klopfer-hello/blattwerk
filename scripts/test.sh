@@ -24,7 +24,7 @@ fi
 
 if [[ $what == all || $what == web ]]; then
   echo "==> web"
-  docker run --rm -v "$PWD/web:/src" -v /src/node_modules -w /src node:24.21.0-slim \
+  docker run --rm -v "$PWD/web:/src" -v /src/node_modules -w /src node:24.22.0-slim \
     sh -c "npm ci --no-audit --no-fund --loglevel=error --update-notifier=false >/dev/null &&
            if npm run build >/tmp/build.log 2>&1; then echo 'web build ok';
            else cat /tmp/build.log; echo 'web build FAILED'; exit 1; fi" || rc=1

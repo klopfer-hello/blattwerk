@@ -35,7 +35,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
   return a.length === b.length && a.every((v, i) => v === b[i]);
 }
 
-function keyBytes(b64url: string): Uint8Array {
+function keyBytes(b64url: string): Uint8Array<ArrayBuffer> {
   const b64 = (b64url + '='.repeat((4 - (b64url.length % 4)) % 4)).replace(/-/g, '+').replace(/_/g, '/');
   return Uint8Array.from(atob(b64), (ch) => ch.charCodeAt(0));
 }

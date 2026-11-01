@@ -41,7 +41,7 @@ phone (PWA) ──HTTPS──> Traefik ──> web (nginx, static app + /api pro
                             wetterwacht (alerts) ──> InfluxDB <── Telegraf <── Home Assistant / Open-Meteo
 ```
 
-Python 3.13 (FastAPI, SQLAlchemy 2, Alembic, psycopg 3), PostgreSQL 17, InfluxDB 3 Core + Telegraf,
+Python 3.14 (FastAPI, SQLAlchemy 2, Alembic, psycopg 3), PostgreSQL 17, InfluxDB 3 Core + Telegraf,
 React + TypeScript (Vite) as an installable web app with web push. Only the web container is reachable; the
 database and InfluxDB sit on an internal network without a route out. The reasons behind the main choices are in
 [docs/adr](docs/adr); the full documentation with diagrams is at

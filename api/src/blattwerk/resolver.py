@@ -116,7 +116,7 @@ class Catalog:
             self.species.append(_Species(s, [n for n in names if n.key], cults))
 
     @classmethod
-    def from_seed(cls, seed: Seed) -> "Catalog":
+    def from_seed(cls, seed: Seed) -> Catalog:
         species = [SpeciesData(s.id, s.latin, tuple(s.german), tuple(s.synonyms)) for s in seed.species]
         cultivars = [
             CultivarData(cultivar_id(s.id, c.name), s.id, c.name, tuple(c.synonyms))

@@ -247,7 +247,7 @@ def parse_result(stdout: str, code: int, stderr: str) -> tuple[dict[str, Any], d
     if not isinstance(answer, dict):
         try:
             answer = json.loads(env.get("result") or "")
-        except (TypeError, json.JSONDecodeError):
+        except TypeError, json.JSONDecodeError:
             raise ClaudeError("Die KI hat kein gültiges JSON geliefert.") from None
     if not isinstance(answer, dict):
         raise ClaudeError("Die KI hat kein gültiges JSON geliefert.")

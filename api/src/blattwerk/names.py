@@ -62,7 +62,7 @@ def clamp_hardiness(v: object) -> int | None:
     """A hardiness from the AI: rounded and clamped to -45..15 °C; anything odd counts as unknown."""
     try:
         return None if v is None else max(-45, min(15, round(float(v))))  # type: ignore[arg-type]
-    except (TypeError, ValueError):
+    except TypeError, ValueError:
         return None
 
 

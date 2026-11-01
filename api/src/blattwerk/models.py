@@ -114,7 +114,7 @@ class StandortIn(Strict):
     notes: Annotated[str, Field(max_length=500)] = ""
 
     @model_validator(mode="after")
-    def _light(self) -> "StandortIn":
+    def _light(self) -> StandortIn:
         if self.type == "zimmer":
             self.light = None  # a room has no "sonnig": where in the room the plant stands counts
             self.windows = [d for d in ("N", "O", "S", "W") if d in self.windows]
@@ -279,7 +279,7 @@ class TaskIn(Strict):
     pheno_window: Annotated[int, Field(ge=1, le=60)] = 14
 
     @model_validator(mode="after")
-    def _timing(self) -> "TaskIn":
+    def _timing(self) -> TaskIn:
         needs = {"once": ("due_date",), "yearly": ("month_from", "month_to"), "interval": ("interval_days",)}
         missing = [f for f in needs[self.recurrence] if getattr(self, f) is None]
         if missing:

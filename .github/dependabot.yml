@@ -18,6 +18,11 @@ updates:
       interval: weekly
     cooldown:
       default-days: 14
+    ignore:
+      - dependency-name: nginxinc/nginx-unprivileged   # stay on the stable line (even minor); odd = mainline
+        versions: ["1.31.x", "1.33.x", "1.35.x"]
+      - dependency-name: node   # build stage only; LTS lines are switched by hand when they become LTS
+        update-types: ["version-update:semver-major"]
   - package-ecosystem: github-actions
     directory: /
     schedule:

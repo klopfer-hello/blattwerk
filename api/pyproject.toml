@@ -2,7 +2,7 @@
 name = "blattwerk-api"
 version = "0.0.0"  # product version comes from /VERSION at build time
 description = "Backend of the blattwerk app"
-requires-python = ">=3.13,<3.14"
+requires-python = ">=3.14,<3.15"
 dependencies = [
   "fastapi>=0.120",
   "uvicorn>=0.35",
@@ -42,7 +42,7 @@ exclude-newer-package = { certifi = "2026-10-19T00:00:00Z" }
 
 [tool.ruff]
 line-length = 120
-target-version = "py313"
+target-version = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP", "S", "SIM", "RUF", "ASYNC"]
@@ -50,7 +50,7 @@ ignore = ["S101"]  # assert is fine in tests
 
 [tool.mypy]
 strict = true
-python_version = "3.13"
+python_version = "3.14"
 mypy_path = "src"
 packages = ["blattwerk"]
 exclude = ["src/blattwerk/migrations/"]  # alembic scripts: dynamic, revision file names

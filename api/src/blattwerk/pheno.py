@@ -77,7 +77,7 @@ def parse_stations(text: str) -> dict[str, tuple[float, float]]:
         p = [x.strip() for x in row.split(";")]
         try:
             out[str(int(p[0]))] = (float(p[2]), float(p[3]))
-        except (ValueError, IndexError):
+        except ValueError, IndexError:
             continue
     return out
 

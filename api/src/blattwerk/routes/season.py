@@ -37,7 +37,7 @@ class Observation(Strict):
     day: Annotated[date, AfterValidator(_recent)]
 
     @model_validator(mode="after")
-    def _year(self) -> "Observation":
+    def _year(self) -> Observation:
         if self.day.year < datetime.now(TZ).date().year and self.phase != "winter":
             raise ValueError("only the winter of last year can be recorded for last year")
         return self
@@ -55,7 +55,7 @@ async def season_state(c: AsyncConnection, today: date) -> dict[str, Any]:
                 "sum": float(gdd["sum"]), "as_of": gdd["as_of"], "normal": curve.get(pheno.mmdd(as_of)),
                 "days_ahead": pheno.days_ahead(float(gdd["sum"]), as_of, curve),
             }  # fmt: skip
-    except (KeyError, TypeError, ValueError):
+    except KeyError, TypeError, ValueError:
         state["gdd"] = None  # odd stored data: the season without the warmth comparison
     return state
 

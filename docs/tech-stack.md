@@ -7,7 +7,7 @@ Every part, what it does in Blattwerk, and why it was chosen. The bigger decisio
 
 | Part | Role | Why |
 |---|---|---|
-| **Python 3.13** | API, worker, alerts, MCP server | One language for everything server-side; great libraries for data, HTTP and scheduling ([ADR 0001](adr/0001-python-fastapi-postgresql.md)). |
+| **Python 3.14** | API, worker, alerts, MCP server | One language for everything server-side; great libraries for data, HTTP and scheduling ([ADR 0001](adr/0001-python-fastapi-postgresql.md)). |
 | **FastAPI** + Pydantic v2 | REST API, validation | Every input is a strict model with size limits; OpenAPI for free; async without ceremony. |
 | **SQLAlchemy 2 Core** (async) + **psycopg 3** | SQL | Explicit SQL for the parts where locking matters (`FOR UPDATE`, `SKIP LOCKED`); no hidden ORM queries. |
 | **Alembic** | Migrations | Every schema change is a reviewed, numbered migration; the `migrate` job runs them before the API starts. |

@@ -32,7 +32,7 @@ class NameQuery(Strict):
     photo_ids: list[Annotated[str, Field(max_length=64)]] = Field(default=[], max_length=3)  # by photo (M11)
 
     @model_validator(mode="after")
-    def _something(self) -> "NameQuery":
+    def _something(self) -> NameQuery:
         if len(self.q) < 2 and not self.photo_ids:
             raise ValueError("a name (2+ characters) or a photo")
         return self

@@ -330,7 +330,7 @@ def _products(raw: Any) -> list[dict[str, Any]]:
         try:
             brands = p.get("brands")
             prod = Product.model_validate({**p, "brands": brands[:3] if isinstance(brands, list) else []})
-        except (ValidationError, TypeError, AttributeError):
+        except ValidationError, TypeError, AttributeError:
             continue
         out.append(prod.model_dump())
     return out[:3]
