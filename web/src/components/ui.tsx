@@ -45,7 +45,19 @@ const paths: Record<string, ReactNode> = {
   more: <><circle cx="5" cy="12" r="1.6" /><circle cx="12" cy="12" r="1.6" /><circle cx="19" cy="12" r="1.6" /></>,
   gear: <><circle cx="12" cy="12" r="3" /><path d="M12 2v3M12 19v3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M2 12h3M19 12h3M4.9 19.1 7 17M17 7l2.1-2.1" /></>,
   info: <><circle cx="12" cy="12" r="10" /><path d="M12 16v-4M12 8h.01" /></>,
+  warn: <><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /><path d="M12 9v4M12 17h.01" /></>,
 };
+
+/** A quiet hint that details are missing (they make plans more exact); not an error. */
+export function MissingHint({ items, size = 14 }: { items: string[]; size?: number }) {
+  if (!items.length) return null;
+  const label = `Angaben fehlen: ${items.join(', ')}`;
+  return (
+    <span role="img" aria-label={label} title={label} style={{ display: 'inline-flex', color: 'var(--muted)', opacity: 0.8, verticalAlign: 'middle' }}>
+      <Icon name="warn" size={size} stroke={2} />
+    </span>
+  );
+}
 
 export function Icon({ name, size = 24, stroke = 2 }: { name: keyof typeof paths | string; size?: number; stroke?: number }) {
   return (

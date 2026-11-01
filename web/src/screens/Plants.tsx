@@ -10,7 +10,7 @@ import {
 import { PhotoThumbs } from '../components/Photos';
 import { uploadPhoto } from '../photos';
 import { MONTHS, plantById, standortById } from '../mock/data';
-import { Back, Chip, Icon, Legal, TaskChip, deDate, localIso, timingText, Waiting } from '../components/ui';
+import { Back, Chip, Icon, Legal, MissingHint, TaskChip, deDate, localIso, timingText, Waiting } from '../components/ui';
 
 const LIGHT: Record<Light, { bg: string; fg: string }> = {
   sonnig: { bg: '#FDF1CF', fg: '#6B4A00' }, halbschattig: { bg: '#E9EEF0', fg: '#2F4550' }, schattig: { bg: '#E1E4EA', fg: '#2B3244' },
@@ -20,6 +20,16 @@ function windowText(p: Plant): string {
   const dirs = p.window_dir && p.window_dir !== 'keins' ? [p.window_dir as Direction] : p.standort.windows ?? [];
   if (!dirs.length) return 'keins';
   return `${dirs.map((d) => DIRECTIONS[d]).join('/')}${p.window_distance ? `, ${DISTANCES[p.window_distance]}` : ''}`;
+}
+/** Details that make the care plan more exact (indoor: the rhythm and amount of watering). */
+export function missingInfo(p: Plant): string[] {
+  if (!p.standort.indoor) return [];
+  return [
+    ...(p.standort.windows?.length ? [] : ['Fensterrichtung des Zimmers']),
+    ...(p.window_distance ? [] : ['Abstand zum Fenster']),
+    ...(p.pot_cm ? [] : ['Topfgröße']),
+    ...(p.height_cm ? [] : ['Höhe']),
+  ];
 }
 const plantTitle = (p: Plant) => p.nickname || `${p.species.german}${p.cultivar ? ` ‘${p.cultivar.name}’` : ''}`;
 const fail = (e: unknown) => (e instanceof ApiError ? e : new ApiError(0, 'Unbekannter Fehler'));
@@ -75,7 +85,7 @@ export function Plants() {
           {g.items.map((p) => (
             <a key={p.id} href={`#/pflanze/${p.id}`} className="card between" style={{ textDecoration: 'none', color: 'var(--ink)' }}>
               <span className="stack" style={{ gap: 3, minWidth: 0 }}>
-                <strong style={{ fontSize: 17 }}>{plantTitle(p)}</strong>
+                <strong style={{ fontSize: 17 }}>{plantTitle(p)} <MissingHint items={missingInfo(p)} /></strong>
                 <span className="small muted" style={{ fontStyle: 'italic' }}>{p.species.latin}{p.cultivar ? ` ‘${p.cultivar.name}’` : ''}</span>
                 {p.form && <span className="small muted">{p.form}{p.planted_year ? ` · seit ${p.planted_year}` : ''}</span>}
               </span>
@@ -159,6 +169,11 @@ export function PlantDetail({ id }: { id: string }) {
       <div className="grid2" style={{ gap: 8 }}>
         {facts.map(([k, v]) => <div key={k} className="box" style={{ padding: '10px 12px' }}><div className="tiny">{k}</div><strong style={{ fontSize: 15 }}>{v}</strong></div>)}
       </div>
+      {missingInfo(p).length > 0 && !p.archived && (
+        <a href={`#/pflanze/${p.id}/bearbeiten`} className="small muted" style={{ display: 'inline-flex', alignItems: 'center', gap: 6, minHeight: 44, textDecoration: 'none', color: 'var(--muted)' }}>
+          <MissingHint items={missingInfo(p)} />Fehlt noch: {missingInfo(p).join(', ')} – macht Gießen genauer
+        </a>
+      )}
       {p.notes && <p className="box" style={{ whiteSpace: 'pre-wrap' }}>{p.notes}</p>}
       {error && <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error.message}</p>}
       <div className="grid2">
@@ -772,7 +787,7 @@ export function Standorte() {
       {list?.length === 0 && !edit && <p className="box">Noch keine Standorte. Sie entstehen auch beim Anlegen einer Pflanze.</p>}
       {list?.map((s) => (
         <div key={s.id} className="card stack" style={{ gap: 6 }}>
-          <div className="between"><strong style={{ fontSize: 17 }}>{s.name}</strong><LightChip light={s.light} /></div>
+          <div className="between"><strong style={{ fontSize: 17 }}>{s.name} {s.type === INDOOR_TYPE && !s.windows?.length && <MissingHint items={['Fensterrichtung']} />}</strong><LightChip light={s.light} /></div>
           <span className="small muted">{s.type === INDOOR_TYPE ? `Drinnen${s.windows?.length ? ` · Fenster nach ${s.windows.map((d) => DIRECTIONS[d]).join(', ')}` : ' · ohne Fenster'}` : `Draußen · ${STANDORT_TYPES[s.type]}`} · {s.plant_count} {s.plant_count === 1 ? 'Pflanze' : 'Pflanzen'}{s.notes ? ` · ${s.notes}` : ''}</span>
           <div className="grid2"><button className="btn" onClick={() => setEdit(s)}>Bearbeiten</button><button className="btn" onClick={() => remove(s)}>Löschen</button></div>
         </div>
