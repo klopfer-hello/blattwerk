@@ -89,11 +89,14 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
+      # The commits as pushed: for a pull request its head, not GitHub's temporary merge commit (whose author is
+      # the GitHub account's e-mail). Merges into main are fast-forwards, so these are the commits main gets.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
           persist-credentials: false
-      - name: gitleaks (whole history)
-        run: bash scripts/gitleaks.sh commits "--all"
-      - name: privacy scan (whole history, generic patterns)
-        run: bash scripts/privacy-scan.sh --commits --all
+      - name: gitleaks (whole history of this commit)
+        run: bash scripts/gitleaks.sh commits HEAD
+      - name: privacy scan (whole history of this commit, generic patterns)
+        run: bash scripts/privacy-scan.sh --commits HEAD
