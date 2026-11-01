@@ -1,0 +1,10 @@
+# Without Traefik: the web container answers on 127.0.0.1:8080 of the Docker host. Put your own reverse
+# proxy with TLS in front of it: phones need HTTPS for the app (service worker, web push, camera).
+# Enable with COMPOSE_FILE=docker-compose.yml:standalone.override.yml in .env; TRAEFIK_NETWORK still names
+# a network, create an empty one for it: docker network create blattwerk-proxy (docs/self-hosting.md).
+services:
+  web:
+    ports:
+      - "127.0.0.1:8080:8080"
+    labels:
+      - "traefik.enable=false"
