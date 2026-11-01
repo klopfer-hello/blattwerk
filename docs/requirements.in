@@ -1,2 +1,4 @@
 mkdocs-material==9.7.7
 mkdocs==1.6.1
+# GHSA-6q48-6c7w-9gw2 (compromised root CAs): taken 13 days old on 2026-11-01
+certifi>=2026.10.18
