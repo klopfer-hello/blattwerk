@@ -28,8 +28,7 @@ network, and it is designed as if it were not.
 `cap_drop: [ALL]`, `no-new-privileges`, read-only root filesystems where possible, tmpfs for scratch,
 healthchecks, no published ports except through the reverse proxy. The app containers run as non-root users; the
 database gets back the five capabilities its entrypoint needs to start and then runs as `postgres`. The Claude
-Code CLI is never part of an
-image (checked in CI).
+Code CLI is never part of an image (checked in CI).
 
 ## What leaves the host
 
