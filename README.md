@@ -44,7 +44,8 @@ phone (PWA) ──HTTPS──> Traefik ──> web (nginx, static app + /api pro
 Python 3.13 (FastAPI, SQLAlchemy 2, Alembic, psycopg 3), PostgreSQL 17, InfluxDB 3 Core + Telegraf,
 React + TypeScript (Vite) as an installable web app with web push. Only the web container is reachable; the
 database and InfluxDB sit on an internal network without a route out. The reasons behind the main choices are in
-[docs/adr](docs/adr).
+[docs/adr](docs/adr); the full documentation with diagrams is at
+**https://klopfer-hello.github.io/blattwerk/** (built from [docs/](docs)).
 
 ## Run it yourself
 

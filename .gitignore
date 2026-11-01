@@ -36,3 +36,6 @@ playwright-report/
 
 # UI smoke screenshots (local only)
 scripts/smoke/out/
+
+# MkDocs build output
+/site/

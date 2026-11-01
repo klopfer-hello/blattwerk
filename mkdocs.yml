@@ -1,0 +1,88 @@
+site_name: Blattwerk
+site_description: Self-hosted plant planner for garden and indoor plants – AI care plans, real-season to-dos, weather alerts, plant doctor.
+site_url: https://klopfer-hello.github.io/blattwerk/
+repo_url: https://github.com/klopfer-hello/blattwerk
+repo_name: klopfer-hello/blattwerk
+edit_uri: edit/main/docs/
+copyright: PolyForm Noncommercial 1.0.0
+
+docs_dir: docs
+site_dir: site
+strict: true
+exclude_docs: |
+  requirements.in
+  requirements.txt
+
+theme:
+  name: material
+  language: en
+  icon:
+    logo: material/leaf
+    repo: fontawesome/brands/github
+  favicon: assets/leaf.svg
+  font: false   # system fonts: no request to Google Fonts
+  palette:
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: green
+      accent: light green
+      toggle: { icon: material/weather-night, name: Dark mode }
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: green
+      accent: light green
+      toggle: { icon: material/weather-sunny, name: Light mode }
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - navigation.indexes
+    - content.code.copy
+    - search.highlight
+    - toc.follow
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc: { permalink: true }
+  - pymdownx.details
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.tabbed: { alternate_style: true }
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Features: features.md
+  - Architecture: architecture.md
+  - Tech stack: tech-stack.md
+  - How it works:
+      - how-it-works/index.md
+      - The to-do engine: how-it-works/todo-engine.md
+      - German law in code: how-it-works/legal.md
+      - Season and weather: how-it-works/season-weather.md
+      - The AI pipeline: how-it-works/ai.md
+      - Chat and MCP: how-it-works/chat.md
+      - Plant doctor and photos: how-it-works/plant-doctor.md
+      - Indoor plants: how-it-works/indoor.md
+  - Security and privacy: security.md
+  - Self-hosting: self-hosting.md
+  - Development: development.md
+  - Decisions (ADRs):
+      - adr/index.md
+      - 0001 Python, FastAPI, PostgreSQL: adr/0001-python-fastapi-postgresql.md
+      - 0002 Claude Code CLI at runtime: adr/0002-claude-code-cli-at-runtime.md
+      - 0003 The AI proposes, rules in code: adr/0003-ai-proposes-rules-in-code.md
+      - 0004 Season and weather: adr/0004-season-and-weather.md
+      - 0005 Chat through MCP: adr/0005-chat-through-mcp.md
+      - 0006 Photos without metadata: adr/0006-photos-without-metadata.md
+      - 0007 Indoor plants, same engine: adr/0007-indoor-plants-same-engine.md
