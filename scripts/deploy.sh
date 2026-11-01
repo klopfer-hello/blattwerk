@@ -7,6 +7,7 @@
 #   scripts/deploy.sh                    test, build HEAD, ship, switch
 #   scripts/deploy.sh --allow-dirty      deploy uncommitted changes (+sha.dirty.<time>)
 #   scripts/deploy.sh --version <tag>    switch back to images already on the host (e.g. 0.2.0-beta.1-<sha>)
+#   scripts/deploy.sh --release <ver>    the released images from GHCR (e.g. 0.16.0; /ship)
 #   A rollback restores the previous compose file too; past a DB migration it also needs
 #   the backup taken before the deploy (scripts/backup.sh restore …).
 # Before a deploy with a DB schema change: make a backup first (ticket 011).
@@ -19,10 +20,11 @@ export MSYS_NO_PATHCONV=1
 source scripts/deploy.local.env
 : "${DEPLOY_HOST:?}" "${DEPLOY_DIR:?}" "${BW_HOST:?}" "${TRAEFIK_NETWORK:?}"
 
-tag='' dirty=false
+tag='' dirty=false prefix=blattwerk
 while [[ $# -gt 0 ]]; do
   case $1 in
     --version) tag=$2; shift 2 ;;
+    --release) tag=${2#v}; prefix=ghcr.io/klopfer-hello/blattwerk; shift 2 ;;
     --allow-dirty) dirty=true; shift ;;
     *) echo "unknown argument: $1" >&2; exit 2 ;;
   esac
@@ -51,7 +53,11 @@ if [[ -z $tag ]]; then
     fi
   done
 else
-  version=$(ssh_ docker run --rm --entrypoint cat "blattwerk-web:$tag" /usr/share/nginx/html/version.txt)
+  if [[ $prefix != blattwerk ]]; then
+    ssh_ docker pull -q "$prefix-web:$tag" >/dev/null && ssh_ docker pull -q "$prefix-api:$tag" >/dev/null \
+      || { echo "cannot pull $prefix-*:$tag (released? public?)" >&2; exit 1; }
+  fi
+  version=$(ssh_ docker run --rm --entrypoint cat "$prefix-web:$tag" /usr/share/nginx/html/version.txt)
 fi
 
 echo "==> switching to ${tag}"
@@ -60,7 +66,7 @@ scp -q deploy/docker-compose.yml "$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.yml.ne
 scp -q deploy/telegraf.conf "$DEPLOY_HOST:$DEPLOY_DIR/telegraf.conf.new"
 scp -q deploy/backup.sh "$DEPLOY_HOST:$DEPLOY_DIR/"
 scp -q deploy/switch.sh "$DEPLOY_HOST:$DEPLOY_DIR/switch.sh"
-ssh_ bash "$DEPLOY_DIR/switch.sh" "$DEPLOY_DIR" "$tag" "$BW_HOST" "$TRAEFIK_NETWORK" "${BW_OLD_HOST:-}"
+ssh_ IMAGE_PREFIX="$prefix" bash "$DEPLOY_DIR/switch.sh" "$DEPLOY_DIR" "$tag" "$BW_HOST" "$TRAEFIK_NETWORK" "${BW_OLD_HOST:-}"
 
 echo "==> checking https://${BW_HOST}"
 web=$(curl -sk --max-time 10 "https://${BW_HOST}/healthz" || true)
