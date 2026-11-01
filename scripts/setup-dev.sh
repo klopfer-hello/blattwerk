@@ -4,8 +4,10 @@
 set -euo pipefail
 cd "$(git rev-parse --show-toplevel)"
 git config core.hooksPath scripts/hooks
-git config user.name "Klopfer Hello"
-git config user.email "forkent@icloud.com"
+if [[ -z $(git config user.email || true) ]]; then   # the maintainer's public identity, never over a contributor's own
+  git config user.name "Klopfer Hello"
+  git config user.email "forkent@icloud.com"
+fi
 mkdir -p .claude
 [[ -f .claude/private-terms.txt ]] || printf '%s\n' \
   '# One extended regex per line, case-insensitive. Never commit this file.' \

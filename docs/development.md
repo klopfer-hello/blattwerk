@@ -1,13 +1,14 @@
 # Development
 
-Everything runs in Docker; nothing besides Docker, git and bash is needed on the PC.
+Tests, the UI smoke and builds run in Docker; nothing besides Docker, git and bash is needed on the PC.
 
 ```sh
 bash scripts/setup-dev.sh        # once: git hooks (privacy scan + gitleaks on commit and push)
 bash scripts/test.sh             # api: ruff, ruff format, mypy strict, pytest (real PostgreSQL); web: tsc + build
 bash scripts/test.sh api -k soil # only pytest, filtered
 bash scripts/ui-smoke.sh         # Playwright: every screen at phone and desktop sizes, invented demo garden
-bash scripts/plan-eval.sh        # care-plan and name quality against the real Claude (costs a few cents)
+bash scripts/plan-eval.sh        # care-plan and name quality against the real Claude, in the deployed
+                                 # worker over SSH (about USD 0.5 per full run; --plans/--names/--indoor)
 ```
 
 ## Repository layout
@@ -36,6 +37,7 @@ bash scripts/plan-eval.sh        # care-plan and name quality against the real C
 - **CI** on every push and pull request: tests, dependency audit (`pip-audit`, `npm audit`), images built and
   scanned with Trivy (HIGH/CRITICAL with a fix fail the build), no Claude CLI in the images, gitleaks and the
   privacy scan over the whole history, CodeQL for Python and TypeScript, and this site built with `--strict`.
-- **Release**: a tag `vX.Y.Z` (matching `VERSION`) runs the same gates and pushes exactly the tested images to
+- **Release**: a tag `vX.Y.Z` (matching `VERSION`) runs the tests, the image checks and Trivy again (the other
+  gates ran on that commit in CI) and pushes exactly the tested images to
   `ghcr.io/klopfer-hello/blattwerk-api` and `-web`, then creates the GitHub release with notes from the commits.
 - Third-party actions are pinned to commit SHAs; Dependabot proposes updates with a 14-day cooldown.

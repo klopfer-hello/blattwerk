@@ -10,7 +10,7 @@ flowchart LR
   phone["Phones (PWA)"] -- HTTPS --> bw["Blattwerk stack"]
   bw -- "care plans, names, chat, photos" --> claude["Claude (Anthropic)"]
   bw -- "forecast, phenology" --> dwd["DWD open data"]
-  bw -- "backup forecast" --> om["Open-Meteo"]
+  bw -- "rounded position: backup forecast, degree days" --> om["Open-Meteo"]
   bw -- "encrypted push" --> push["Push services (Google, Apple, Mozilla)"]
   ha["Home Assistant (optional)"] -- sensors --> bw
 ```
@@ -21,7 +21,7 @@ flowchart LR
 flowchart TB
   subgraph routing["routing network (Traefik)"]
     traefik["Traefik (TLS)"]
-    web["web: nginx<br/>static app + /api proxy"]
+    web["web: nginx<br/>static app + /api proxy<br/>(also on backend)"]
   end
   subgraph backend["backend network (internal, no route out)"]
     api["api: FastAPI"]
@@ -30,9 +30,9 @@ flowchart TB
     influx[("influxdb: InfluxDB 3 Core")]
     ww["wetterwacht: alerts"]
   end
-  subgraph egress["egress network (internet)"]
+  subgraph egress["egress network (internet) – also on backend"]
     worker["worker: jobs, Claude CLI, MCP"]
-    telegraf["telegraf: sensors"]
+    telegraf["telegraf: sensors (only with Home Assistant)"]
   end
   traefik --> web --> api --> db
   migrate --> db
@@ -47,11 +47,13 @@ flowchart TB
   container name, so nginx starts even while the API restarts.
 - **`backend` is an internal network**: PostgreSQL, InfluxDB, the API and the migration job have no route to the
   internet and no published ports.
-- **`worker` and `telegraf`** also join `egress`: the worker talks to Claude, DWD and the push services; Telegraf
-  to Home Assistant and Open-Meteo. The API itself cannot reach the internet at all.
+- **`worker` and `telegraf`** sit on `backend` and also join `egress`: the worker talks to Claude, DWD, Open-Meteo
+  (growing degree days) and the push services; Telegraf to Home Assistant and Open-Meteo. `web` joins `backend` to
+  reach the API. The API itself cannot reach the internet at all.
 - **`migrate`** runs Alembic once before the API starts; the API only starts after it succeeded.
-- All containers run as non-root, with `cap_drop: [ALL]`, `no-new-privileges`, read-only root filesystems where
-  possible, and healthchecks.
+- All containers drop all capabilities (`cap_drop: [ALL]`) and run with `no-new-privileges`, read-only root
+  filesystems where possible, and healthchecks. The app containers run as non-root users; the database gets back
+  the five capabilities its entrypoint needs and then runs as the `postgres` user.
 
 ## Request flow: from tap to database
 
@@ -115,8 +117,9 @@ erDiagram
 - **tasks** describe *what and when* (once, yearly month window, interval, optional season trigger);
   **todos** are the concrete occurrences on the checklist. See [the to-do engine](how-it-works/todo-engine.md).
 - Care plans keep their history: a new plan *retires* the old tasks; done to-dos stay.
-- Integrity lives in the database: foreign keys, CHECK constraints (e.g. watering only as an indoor category,
-  `cut_type` only for pruning), unique keys that make job and to-do creation idempotent.
+- Integrity lives in the database: foreign keys, CHECK constraints (e.g. `cut_type` only for pruning, an amount
+  only for watering), unique keys that make job and to-do creation idempotent. Rules that depend on other rows
+  (watering only for indoor plants) are enforced in the API where tasks and to-dos are made.
 
 ## Deployment
 

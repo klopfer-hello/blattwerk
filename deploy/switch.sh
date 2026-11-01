@@ -58,7 +58,7 @@ lat_km=$(round2 "$(get BW_LAT)") && lon_km=$(round2 "$(get BW_LON)") || exit 1
 setenv BW_LAT_KM "$lat_km"; setenv BW_LON_KM "$lon_km"
 # Telegraf (Home Assistant + Open-Meteo) only when Home Assistant is configured: weather is optional.
 if [[ -n $(get BW_HA_URL) && -n $(get BW_HA_TOKEN) ]]; then setenv COMPOSE_PROFILES weather; else setenv COMPOSE_PROFILES ''; fi
-setenv BW_HOST "$3"; setenv TRAEFIK_NETWORK "$4"; setenv BW_OLD_HOST "$5"
+setenv BW_HOST "$3"; setenv TRAEFIK_NETWORK "$4"; setenv BW_OLD_HOST "${5:-}"
 for img in "$prefix-web:$tag" "$prefix-api:$tag"; do   # GHCR images: pulled once
   docker image inspect "$img" >/dev/null 2>&1 || docker pull -q "$img" >/dev/null
 done

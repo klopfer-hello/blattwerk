@@ -37,7 +37,7 @@ the app turns it into to-dos you tick off, and the dates follow the real season 
 phone (PWA) ──HTTPS──> Traefik ──> web (nginx, static app + /api proxy)
                                      └─> api (FastAPI) ──> PostgreSQL
                                            worker ──> Claude Code CLI (care plans, names, chat + MCP tools)
-                                                  └─> DWD (forecast, phenology), push services
+                                                  └─> DWD (forecast, phenology), Open-Meteo, push services
                             wetterwacht (alerts) ──> InfluxDB <── Telegraf <── Home Assistant / Open-Meteo
 ```
 
@@ -63,7 +63,8 @@ checked for personal data (private IPs, LAN host names, user paths, e-mail addre
 
 - `bash scripts/test.sh` — api (ruff, mypy strict, pytest against a real PostgreSQL) and web build, all in Docker.
 - `bash scripts/ui-smoke.sh` — every screen at phone and desktop sizes with Playwright and an invented demo garden.
-- `bash scripts/plan-eval.sh` — care-plan and name quality against the real Claude (costs a few cents).
+- `bash scripts/plan-eval.sh` — care-plan and name quality against the real Claude, run in a deployed worker
+  (about USD 0.5 per full run).
 
 ## License
 

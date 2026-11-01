@@ -15,12 +15,14 @@ flowchart LR
   L --> D[("tasks + to-dos")]
 ```
 
-- **Facts, not free text**: the prompt is a small JSON object of what the app knows about the plant. Typed names
-  and notes go in as data.
+- **Facts, not free text**: the prompt is a small JSON object of what the app knows about the plant (species,
+  Sorte, form, age, Standort type and light or window, pot, height, Bundesland, preferences). Notes, nicknames and the
+  place are never sent with a care plan.
 - **Two prompts**: one for the garden (seasonal windows, phenology, pruning law), one for indoor plants (watering
   rhythm and amount, misting, dusting, repotting).
-- **Structured output**: `--json-schema` makes the CLI return JSON of a fixed shape; Pydantic validates it again;
-  invalid tasks are dropped and counted, never "repaired".
+- **Structured output**: `--json-schema` makes the CLI return JSON of a fixed shape; Pydantic validates it again.
+  Invalid tasks are dropped and counted; fields are normalised conservatively (a cut without `cut_type` counts as
+  strong, a cut filed elsewhere becomes pruning, numbers are clamped, a bad season trigger is removed).
 - **Switched-off tasks** go into the prompt as "do not suggest again", so a new plan does not bring them back under
   another name; the pause also carries over by title.
 

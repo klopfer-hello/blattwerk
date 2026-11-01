@@ -35,7 +35,8 @@ flowchart LR
   E -- no --> G["first day of the next season window"]
 ```
 
-Indoor tasks add a **winter rhythm** (Nov–Feb) and **active months** (fertilise only April–September).
+Indoor tasks add a **winter rhythm** (Nov–Feb) and **active months** (e.g. fertilise only from spring to late
+summer – the care plan sets the window).
 
 ## Generations instead of overwriting
 

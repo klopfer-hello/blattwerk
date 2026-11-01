@@ -11,8 +11,8 @@ Every part, what it does in Blattwerk, and why it was chosen. The bigger decisio
 | **FastAPI** + Pydantic v2 | REST API, validation | Every input is a strict model with size limits; OpenAPI for free; async without ceremony. |
 | **SQLAlchemy 2 Core** (async) + **psycopg 3** | SQL | Explicit SQL for the parts where locking matters (`FOR UPDATE`, `SKIP LOCKED`); no hidden ORM queries. |
 | **Alembic** | Migrations | Every schema change is a reviewed, numbered migration; the `migrate` job runs them before the API starts. |
-| **PostgreSQL 17** | The data | Constraints guard the rules (indoor-only categories, cut types, idempotent to-dos); JSONB for documents like care plans and settings; roles for least privilege (the chat's read-only role). |
-| **uv** | Dependencies | Locked, hashed, fast; `exclude-newer` keeps every dependency at least two weeks old (supply-chain hygiene). |
+| **PostgreSQL 17** | The data | Constraints guard the rules (cut types, amounts, idempotent to-dos); JSONB for documents like care plans and settings; roles for least privilege (the chat's own role: reading plus proposals). |
+| **uv** | Dependencies | Locked, hashed, fast; `exclude-newer` keeps dependencies at least two weeks old (supply-chain hygiene), with documented exceptions for urgent security fixes. |
 | **Pillow** | Photos | Verifies uploads, refuses decompression bombs, re-encodes without metadata. |
 | **mcp** (Python SDK) | Chat tools | A small stdio MCP server gives Claude exactly the tools it may use ([ADR 0005](adr/0005-chat-through-mcp.md)). |
 
@@ -28,9 +28,9 @@ Every part, what it does in Blattwerk, and why it was chosen. The bigger decisio
 
 | Part | Role | Why |
 |---|---|---|
-| **DWD MOSMIX** | Forecast | The German weather service's station forecasts: free, local, hourly. |
+| **DWD MOSMIX** | Forecast | The German weather service's station forecasts: free, local, hourly; the station is chosen on the host. |
 | **DWD phenology** | The season | Reports of indicator plants (hazel, forsythia, apple, elder …) per region decide the current season ([ADR 0004](adr/0004-season-and-weather.md)). |
-| **Telegraf** | Sensor agent | The classic telemetry agent pattern: polls Home Assistant and Open-Meteo, writes line protocol. |
+| **Telegraf** | Sensor agent | The classic telemetry agent pattern: polls Home Assistant and Open-Meteo, writes line protocol (runs when Home Assistant is set up). |
 | **InfluxDB 3 Core** | Measurements | A time-series store for history and charts, separate from the app's data. |
 | **wetterwacht** | Alerts | Its own process: rules are pure functions (forecast in, events and actions out), IO around them. |
 

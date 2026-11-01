@@ -52,7 +52,8 @@ photos: the database refuses. Its password is generated on the host.
 - At most five proposals per answer; duplicates are merged.
 - A proposal is checked when it is made **and again** when you say "Ja" (dates, watering only indoors, the plant
   still exists); it expires after a week.
-- Notes the user wrote on plants and to-dos are not given to the model.
+- Notes the user wrote on plants and to-dos are not given to the model; the history tool returns titles, dates
+  and diagnoses only.
 
 ## Why like this
 

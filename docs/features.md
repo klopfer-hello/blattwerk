@@ -42,7 +42,7 @@ Every task can be edited, switched off for this plant (it stays off in future pl
   it is against the long-term mean, your own observations.
 - Forecast and own sensors (via Home Assistant): air, ground, rain, wind, soil moisture, greenhouse.
 - **Alerts** for frost, strong frost, late frost on blossom and young shoots, heat and storm, each with concrete
-  to-dos for the plants at risk (e.g. "Kübel mit Vlies umwickeln", "Knollen ausgraben").
+  to-dos for the plants at risk (e.g. "Kübelpflanzen frostfrei stellen", "Knollen ausgraben").
 
 ## Ask (Fragen) and the plant doctor
 
@@ -53,5 +53,5 @@ Every task can be edited, switched off for this plant (it stays off in future pl
 
 ## History (Verlauf)
 
-Per plant: done and skipped to-dos with notes, diagnoses with photos – also the context the AI sees when you ask
-about that plant later.
+Per plant: done and skipped to-dos with notes, diagnoses with photos. When you ask about that plant later, the AI
+sees the titles, dates and diagnoses (not your notes or the photos).
