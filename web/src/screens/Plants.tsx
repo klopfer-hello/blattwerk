@@ -288,6 +288,15 @@ function PlantTasks({ plantId, indoor, archived }: { plantId: string; indoor: bo
       await load();
     } catch (e) { setMsg(fail(e).message); } finally { setBusy(null); }
   }
+  async function toggle(t: Task) {   // switched off stays off: also for the next care plan
+    if (busy) return;
+    setBusy(t.id); setMsg('');
+    try {
+      await api.setTaskEnabled(t.id, !t.enabled);
+      setMsg(t.enabled ? `„${t.title}“ ist für diese Pflanze abgeschaltet – auch neue Pflegepläne bringen sie nicht zurück.` : `„${t.title}“ ist wieder eingeschaltet.`);
+      await load();
+    } catch (e) { setMsg(fail(e).message); } finally { setBusy(null); }
+  }
   async function soil(how: Soil) {
     if (!soilFor || busy) return;
     setBusy(soilFor);
@@ -310,14 +319,22 @@ function PlantTasks({ plantId, indoor, archived }: { plantId: string; indoor: bo
       {list?.map((t) => (
         <div key={t.id} className="card stack" style={{ gap: 6, opacity: t.enabled ? 1 : 0.6 }}>
           <a href={`#/aufgabe-bearbeiten/${t.id}`} className="stack" style={{ gap: 4, textDecoration: 'none', color: 'var(--ink)' }}>
-            <span className="row" style={{ gap: 6 }}><TaskChip category={t.category} />{t.source === 'plan' && <span className="tiny">Pflegeplan</span>}{!t.enabled && <span className="tiny">pausiert</span>}</span>
+            <span className="row" style={{ gap: 6 }}><TaskChip category={t.category} />{t.source === 'plan' && <span className="tiny">Pflegeplan</span>}{!t.enabled && <span className="tiny">abgeschaltet</span>}</span>
             <strong>{t.title}</strong>
             <span className="small muted">{timingText(t)}{t.amount_ml ? ` · ca. ${t.amount_ml} ml` : ''}{t.next_due ? ` · nächstes Mal ${deDate(t.next_due)}` : ''}</span>
           </a>
-          {!archived && t.enabled && t.recurrence !== 'once' && (
-            <button className="btn small" style={{ alignSelf: 'flex-start', minHeight: 44 }} disabled={busy === t.id} onClick={() => doneNow(t)}>
-              {busy === t.id ? <Waiting text="Trägt ein …" /> : <><Icon name="check" size={18} />Heute gemacht</>}
-            </button>
+          {!archived && t.recurrence !== 'once' && (
+            <div className="row" style={{ gap: 8 }}>
+              {t.enabled && (
+                <button className="btn small" style={{ minHeight: 44 }} disabled={busy === t.id} onClick={() => doneNow(t)}>
+                  {busy === t.id ? <Waiting text="Trägt ein …" /> : <><Icon name="check" size={18} />Heute gemacht</>}
+                </button>
+              )}
+              <button className="btn small" style={{ minHeight: 44 }} disabled={busy === t.id} onClick={() => toggle(t)}
+                aria-label={`${t.title}: ${t.enabled ? 'für diese Pflanze abschalten' : 'wieder einschalten'}`}>
+                {t.enabled ? 'Abschalten' : 'Einschalten'}
+              </button>
+            </div>
           )}
         </div>
       ))}
