@@ -5,12 +5,12 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1
-export SMOKE_API_IMAGE=garten-planer-api:smoke SMOKE_WEB_IMAGE=garten-planer-web:smoke
+export SMOKE_API_IMAGE=blattwerk-api:smoke SMOKE_WEB_IMAGE=blattwerk-web:smoke
 SMOKE_UID=$(id -u); SMOKE_GID=$(id -g); export SMOKE_UID SMOKE_GID
 echo "==> building"
 docker build -q -t "$SMOKE_API_IMAGE" --target runtime api >/dev/null
 docker build -q -t "$SMOKE_WEB_IMAGE" web >/dev/null
-compose=(docker compose -p garten-planer-smoke -f scripts/smoke/compose.yml)
+compose=(docker compose -p blattwerk-smoke -f scripts/smoke/compose.yml)
 trap '"${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
 rm -rf scripts/smoke/out
 echo "==> smoke"

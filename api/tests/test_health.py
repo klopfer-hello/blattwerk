@@ -1,7 +1,7 @@
 from fastapi.testclient import TestClient
 
-from garten_planer.config import Config
-from garten_planer.main import create_app
+from blattwerk.config import Config
+from blattwerk.main import create_app
 
 
 def test_healthz_reports_version_and_db(client: TestClient) -> None:

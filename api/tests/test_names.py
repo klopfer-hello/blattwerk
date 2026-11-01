@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer.claude_cli import ClaudeError
-from garten_planer.names import build_prompt, sanitize
-from garten_planer.worker import run_name_jobs
+from blattwerk.claude_cli import ClaudeError
+from blattwerk.names import build_prompt, sanitize
+from blattwerk.worker import run_name_jobs
 from tests.conftest import BASE, DATABASE_URL
 
 H = {"Origin": BASE}
@@ -179,7 +179,7 @@ def test_old_queued_lookup_expires(client: TestClient, db: Engine) -> None:
 
 
 def test_jobs_wait_until_the_cli_is_installed() -> None:
-    from garten_planer.worker import wait_ready
+    from blattwerk.worker import wait_ready
 
     ready = asyncio.Event()
 

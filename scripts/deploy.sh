@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build the garten-planer images (web + api) on this PC, ship them to the Docker
+# Build the blattwerk images (web + api) on this PC, ship them to the Docker
 # host over SSH and switch the stack there. A failed switch (compose error, a
 # container not healthy, wrong image running) rolls back to the previous images.
 # Host facts come only from the gitignored scripts/deploy.local.env. The DB
@@ -17,7 +17,7 @@ export MSYS_NO_PATHCONV=1
 [[ -f scripts/deploy.local.env ]] || { echo "missing scripts/deploy.local.env" >&2; exit 1; }
 # shellcheck disable=SC1091
 source scripts/deploy.local.env
-: "${DEPLOY_HOST:?}" "${DEPLOY_DIR:?}" "${GP_HOST:?}" "${TRAEFIK_NETWORK:?}"
+: "${DEPLOY_HOST:?}" "${DEPLOY_DIR:?}" "${BW_HOST:?}" "${TRAEFIK_NETWORK:?}"
 
 tag='' dirty=false
 while [[ $# -gt 0 ]]; do
@@ -40,9 +40,9 @@ if [[ -z $tag ]]; then
   echo "==> tests"
   bash scripts/test.sh >/dev/null 2>&1 || { echo "tests failed: run scripts/test.sh" >&2; exit 1; }
   echo "==> building ${tag}"
-  docker build -q -t "garten-planer-web:$tag" --build-arg VERSION="$version" web >/dev/null
-  docker build -q -t "garten-planer-api:$tag" --target runtime --build-arg VERSION="$version" api >/dev/null
-  for img in "garten-planer-web:$tag" "garten-planer-api:$tag"; do
+  docker build -q -t "blattwerk-web:$tag" --build-arg VERSION="$version" web >/dev/null
+  docker build -q -t "blattwerk-api:$tag" --target runtime --build-arg VERSION="$version" api >/dev/null
+  for img in "blattwerk-web:$tag" "blattwerk-api:$tag"; do
     if ssh_ docker image inspect "$img" >/dev/null 2>&1; then
       echo "    $img already on the host"
     else
@@ -51,7 +51,7 @@ if [[ -z $tag ]]; then
     fi
   done
 else
-  version=$(ssh_ docker run --rm --entrypoint cat "garten-planer-web:$tag" /usr/share/nginx/html/version.txt)
+  version=$(ssh_ docker run --rm --entrypoint cat "blattwerk-web:$tag" /usr/share/nginx/html/version.txt)
 fi
 
 echo "==> switching to ${tag}"
@@ -59,7 +59,7 @@ ssh_ "mkdir -p '$DEPLOY_DIR'"
 scp -q deploy/docker-compose.yml "$DEPLOY_HOST:$DEPLOY_DIR/docker-compose.yml.new"
 scp -q deploy/telegraf.conf "$DEPLOY_HOST:$DEPLOY_DIR/telegraf.conf.new"
 scp -q deploy/backup.sh "$DEPLOY_HOST:$DEPLOY_DIR/"
-ssh_ bash -s -- "$DEPLOY_DIR" "$tag" "$GP_HOST" "$TRAEFIK_NETWORK" <<'REMOTE'
+ssh_ bash -s -- "$DEPLOY_DIR" "$tag" "$BW_HOST" "$TRAEFIK_NETWORK" "${BW_OLD_HOST:-}" <<'REMOTE'
 set -euo pipefail
 cd "$1"; tag=$2
 touch .env && chmod 600 .env
@@ -71,17 +71,17 @@ setenv() {   # set KEY=value, or remove KEY when value is empty
 # InfluxDB admin token, before anything is switched (a failure here leaves the running version alone).
 # Created offline into its own volume (uid 1500, mode 400), copied into .env; never leaves the host.
 influx_img=$(tr -d '\r' < docker-compose.yml.new | sed -n 's/^ *image: *\(influxdb:[^ #]*\).*$/\1/p' | head -1)
-vol=garten-planer-influx-secret   # same name as in docker-compose.yml
+vol=blattwerk-influx-secret   # same name as in docker-compose.yml
 docker volume create "$vol" >/dev/null   # idempotent: also brings back a pruned volume
 docker run --rm --network none --user 0 --entrypoint sh -v "$vol:/secret" "$influx_img" -c \
   'test -s /secret/admin.json || influxdb3 create token --admin --offline --output-file /secret/admin.json >/dev/null; chown 1500:1500 /secret/admin.json && chmod 400 /secret/admin.json'
 token=$(docker run --rm --network none --user 0 --entrypoint cat -v "$vol:/secret:ro" "$influx_img" /secret/admin.json \
   | sed -n 's/.*"token" *: *"\([^"]*\)".*/\1/p')
 [[ -n $token ]] || { echo "could not read the InfluxDB token" >&2; exit 1; }
-[[ $(get GP_INFLUX_TOKEN) == "$token" ]] || setenv GP_INFLUX_TOKEN "$token"   # file and .env always agree
+[[ $(get BW_INFLUX_TOKEN) == "$token" ]] || setenv BW_INFLUX_TOKEN "$token"   # file and .env always agree
 unset token
 
-prev_web=$(get GARTEN_PLANER_WEB_IMAGE); prev_api=$(get GARTEN_PLANER_API_IMAGE)
+prev_web=$(get BLATTWERK_WEB_IMAGE); prev_api=$(get BLATTWERK_API_IMAGE)
 # Keep the files that belong to the previous images: a rollback needs them.
 if [[ -f docker-compose.yml ]]; then cp docker-compose.yml docker-compose.yml.prev; fi
 mv docker-compose.yml.new docker-compose.yml
@@ -91,31 +91,31 @@ if ! cmp -s telegraf.conf.new telegraf.conf 2>/dev/null; then
   conf_changed=true
 fi
 mv telegraf.conf.new telegraf.conf
-[[ -z $prev_web ]] && prev_web=$(get GARTEN_PLANER_IMAGE)       # 0.1.x used one image variable
-setenv GARTEN_PLANER_IMAGE ''
-[[ -n $(get GP_DB_PASSWORD) ]] || setenv GP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-[[ -n $(get GP_MCP_DB_PASSWORD) ]] || setenv GP_MCP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
-if [[ -z $(get GP_VAPID_PRIVATE) ]]; then   # web push keys: generated here, never leave the host
-  keys=$(docker run --rm --network none --entrypoint python "garten-planer-api:$tag" -m garten_planer.push keygen)
-  setenv GP_VAPID_PUBLIC "$(sed -n 's/^GP_VAPID_PUBLIC=//p' <<<"$keys")"
-  setenv GP_VAPID_PRIVATE "$(sed -n 's/^GP_VAPID_PRIVATE=//p' <<<"$keys")"
+[[ -z $prev_web ]] && prev_web=$(get BLATTWERK_IMAGE)       # 0.1.x used one image variable
+setenv BLATTWERK_IMAGE ''
+[[ -n $(get BW_DB_PASSWORD) ]] || setenv BW_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+[[ -n $(get BW_MCP_DB_PASSWORD) ]] || setenv BW_MCP_DB_PASSWORD "$(head -c 24 /dev/urandom | od -An -tx1 | tr -d ' \n')"
+if [[ -z $(get BW_VAPID_PRIVATE) ]]; then   # web push keys: generated here, never leave the host
+  keys=$(docker run --rm --network none --entrypoint python "blattwerk-api:$tag" -m blattwerk.push keygen)
+  setenv BW_VAPID_PUBLIC "$(sed -n 's/^BW_VAPID_PUBLIC=//p' <<<"$keys")"
+  setenv BW_VAPID_PRIVATE "$(sed -n 's/^BW_VAPID_PRIVATE=//p' <<<"$keys")"
 fi
 round2() {   # about 1 km; a malformed value (comma, text) stops the deploy instead of becoming 0.00
   [[ -z $1 ]] && return 0
-  [[ $1 =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || { echo "GP_LAT/GP_LON in .env must look like 51.05 (got '$1')" >&2; return 1; }
+  [[ $1 =~ ^-?[0-9]+(\.[0-9]+)?$ ]] || { echo "BW_LAT/BW_LON in .env must look like 51.05 (got '$1')" >&2; return 1; }
   LC_ALL=C printf '%.2f' "$1"
 }
-lat_km=$(round2 "$(get GP_LAT)") && lon_km=$(round2 "$(get GP_LON)") || exit 1
-setenv GP_LAT_KM "$lat_km"; setenv GP_LON_KM "$lon_km"
+lat_km=$(round2 "$(get BW_LAT)") && lon_km=$(round2 "$(get BW_LON)") || exit 1
+setenv BW_LAT_KM "$lat_km"; setenv BW_LON_KM "$lon_km"
 # Telegraf (Home Assistant + Open-Meteo) only when Home Assistant is configured: weather is optional.
-if [[ -n $(get GP_HA_URL) && -n $(get GP_HA_TOKEN) ]]; then setenv COMPOSE_PROFILES weather; else setenv COMPOSE_PROFILES ''; fi
-setenv GP_HOST "$3"; setenv TRAEFIK_NETWORK "$4"
-setenv GARTEN_PLANER_WEB_IMAGE "garten-planer-web:$tag"; setenv GARTEN_PLANER_API_IMAGE "garten-planer-api:$tag"
+if [[ -n $(get BW_HA_URL) && -n $(get BW_HA_TOKEN) ]]; then setenv COMPOSE_PROFILES weather; else setenv COMPOSE_PROFILES ''; fi
+setenv BW_HOST "$3"; setenv TRAEFIK_NETWORK "$4"; setenv BW_OLD_HOST "$5"
+setenv BLATTWERK_WEB_IMAGE "blattwerk-web:$tag"; setenv BLATTWERK_API_IMAGE "blattwerk-api:$tag"
 
 healthy() {   # the garden app's containers healthy, within 90 s (weather problems never roll back the app)
   for _ in $(seq 1 45); do
     ok=true
-    for c in garten-planer-db garten-planer-api garten-planer-worker garten-planer-web; do
+    for c in blattwerk-db blattwerk-api blattwerk-worker blattwerk-web; do
       case $(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing) in
         healthy) ;;
         unhealthy) return 1 ;;
@@ -129,8 +129,8 @@ healthy() {   # the garden app's containers healthy, within 90 s (weather proble
 }
 running() { [[ $(docker inspect -f '{{.Config.Image}}' "$1" 2>/dev/null) == "$2" ]]; }
 weather_check() {   # report only
-  for c in garten-planer-influxdb garten-planer-telegraf garten-planer-wetterwacht; do
-    [[ $c == garten-planer-telegraf && -z $(get COMPOSE_PROFILES) ]] && { echo "weather: telegraf off (no GP_HA_URL/GP_HA_TOKEN)"; continue; }
+  for c in blattwerk-influxdb blattwerk-telegraf blattwerk-wetterwacht; do
+    [[ $c == blattwerk-telegraf && -z $(get COMPOSE_PROFILES) ]] && { echo "weather: telegraf off (no BW_HA_URL/BW_HA_TOKEN)"; continue; }
     for _ in $(seq 1 30); do
       s=$(docker inspect -f '{{.State.Health.Status}}' "$c" 2>/dev/null || echo missing)
       [[ $s == healthy || $s == unhealthy ]] && break
@@ -141,7 +141,7 @@ weather_check() {   # report only
 }
 
 if out=$(docker compose up -d --remove-orphans 2>&1) && healthy \
-   && running garten-planer-web "garten-planer-web:$tag" && running garten-planer-api "garten-planer-api:$tag"; then
+   && running blattwerk-web "blattwerk-web:$tag" && running blattwerk-api "blattwerk-api:$tag"; then
   if $conf_changed && [[ -n $(get COMPOSE_PROFILES) ]]; then   # bind-mounted config: compose does not notice changes
     docker compose restart telegraf >/dev/null 2>&1 || echo "weather: telegraf restart failed" >&2
   fi
@@ -151,34 +151,34 @@ if out=$(docker compose up -d --remove-orphans 2>&1) && healthy \
 fi
 echo "switch FAILED" >&2
 grep -v -i -E 'token|password|secret' <<<"${out:-}" | tail -5 | sed 's/^/[compose] /' >&2 || true
-for c in garten-planer-migrate garten-planer-influx-init garten-planer-api garten-planer-worker garten-planer-web; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
+for c in blattwerk-migrate blattwerk-influx-init blattwerk-api blattwerk-worker blattwerk-web; do docker logs --tail 15 "$c" 2>&1 | sed "s/^/[$c] /" >&2 || true; done
 if [[ -n $prev_web && -n $prev_api ]]; then
   [[ -f docker-compose.yml.prev ]] && cp docker-compose.yml.prev docker-compose.yml
   $conf_changed && [[ -f telegraf.conf.prev ]] && cp telegraf.conf.prev telegraf.conf
-  setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"; setenv GARTEN_PLANER_API_IMAGE "$prev_api"
+  setenv BLATTWERK_WEB_IMAGE "$prev_web"; setenv BLATTWERK_API_IMAGE "$prev_api"
   docker compose up -d --remove-orphans >/dev/null 2>&1 || true
   echo "ROLLED BACK to $prev_web / $prev_api (with the previous compose file)" >&2
   echo "If the failed version had already migrated the DB: restore the backup taken before the deploy." >&2
 elif [[ -n $prev_web ]]; then   # first deploy with a backend: back to the web-only prototype
   docker compose stop api worker db >/dev/null 2>&1 || true
   [[ -f docker-compose.yml.prev ]] && cp docker-compose.yml.prev docker-compose.yml
-  setenv GARTEN_PLANER_WEB_IMAGE "$prev_web"
+  setenv BLATTWERK_WEB_IMAGE "$prev_web"
   docker compose up -d --no-deps web >/dev/null 2>&1 || true
   echo "ROLLED BACK to $prev_web (backend stopped)" >&2
 fi
 exit 1
 REMOTE
 
-echo "==> checking https://${GP_HOST}"
-web=$(curl -sk --max-time 10 "https://${GP_HOST}/healthz" || true)
-apih=$(curl -sk --max-time 10 "https://${GP_HOST}/api/healthz" || true)
+echo "==> checking https://${BW_HOST}"
+web=$(curl -sk --max-time 10 "https://${BW_HOST}/healthz" || true)
+apih=$(curl -sk --max-time 10 "https://${BW_HOST}/api/healthz" || true)
 if [[ $web != "$version" || $apih != *"\"version\":\"$version\""* || $apih != *'"db":"ok"'* ]]; then
   echo "unexpected answers: web '${web}', api '${apih}'" >&2
   exit 1
 fi
 echo "web:  ${web}"
 echo "api:  ${apih}"
-for repo in garten-planer-web garten-planer-api; do   # keep the 3 newest local images
+for repo in blattwerk-web blattwerk-api; do   # keep the 3 newest local images
   docker image ls "$repo" --format '{{.Tag}}' | grep -v '^test$' | tail -n +4 | xargs -r -I{} docker image rm -f "$repo:{}" >/dev/null
 done
 echo "rollback: scripts/deploy.sh --version <previous tag>"

@@ -1,4 +1,4 @@
-# garten-planer
+# blattwerk
 
 Self-hosted seasonal garden planner (German UI). You keep a list of your plants, down to the cultivar (German or
 Latin names). An AI writes a care plan for each one: fertilising with product suggestions, pruning instructions and

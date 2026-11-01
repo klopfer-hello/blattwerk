@@ -8,4 +8,4 @@ cd "$(dirname "$0")/.."
 source scripts/deploy.local.env
 arg=${1:-all}
 case $arg in all|--plans|--names) ;; *) echo "usage: $0 [--plans|--names]" >&2; exit 2 ;; esac
-exec ssh -o BatchMode=yes "$DEPLOY_HOST" docker exec garten-planer-worker python -m garten_planer.plan_eval "$arg"
+exec ssh -o BatchMode=yes "$DEPLOY_HOST" docker exec blattwerk-worker python -m blattwerk.plan_eval "$arg"

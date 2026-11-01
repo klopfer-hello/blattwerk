@@ -7,8 +7,8 @@ from datetime import date, datetime, time, timedelta
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 
-from garten_planer.routes.todos import TZ, now
-from garten_planer.schedule import TaskTiming, occurrences
+from blattwerk.routes.todos import TZ, now
+from blattwerk.schedule import TaskTiming, occurrences
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
@@ -111,7 +111,7 @@ def test_strong_cut_at_a_summer_phase_is_still_moved_by_the_law(client: TestClie
 
 
 def test_plan_task_keeps_its_trigger_and_bad_triggers_are_ignored() -> None:
-    from garten_planer.plan import sanitize
+    from blattwerk.plan import sanitize
     from tests.test_plan import answer
 
     tasks = answer()["tasks"]
@@ -123,7 +123,7 @@ def test_plan_task_keeps_its_trigger_and_bad_triggers_are_ignored() -> None:
 
 
 def test_late_frost_starts_with_the_apple_blossom() -> None:
-    from garten_planer.alerts import Hour, detect
+    from blattwerk.alerts import Hour, detect
 
     now = datetime(2026, 4, 8, 12, tzinfo=TZ)
     hours = [Hour(now + timedelta(hours=i), 1.0 if i != 14 else -0.5, 1.0, 10.0) for i in range(40)]
@@ -146,7 +146,7 @@ def test_postponed_todo_stays_where_the_user_put_it(client: TestClient, db: Engi
 
 
 def test_late_frost_date_of_this_year_does_not_reach_into_january() -> None:
-    from garten_planer.alerts import Hour, detect
+    from blattwerk.alerts import Hour, detect
 
     now = datetime(2026, 12, 31, 12, tzinfo=TZ)
     hours = [Hour(now + timedelta(hours=i), 1.0 if i != 16 else -0.5, 1.0, 10.0) for i in range(40)]
@@ -163,7 +163,7 @@ def test_one_report_alone_does_not_move_the_tasks(client: TestClient, db: Engine
 
 
 def test_bad_plan_trigger_drops_only_the_trigger() -> None:
-    from garten_planer.plan import sanitize
+    from blattwerk.plan import sanitize
     from tests.test_plan import answer
 
     tasks = answer()["tasks"]

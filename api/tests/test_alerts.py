@@ -12,10 +12,10 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer import alerts
-from garten_planer.alerts import Hour, PlantInfo, actions, detect
-from garten_planer.plan import WATERING
-from garten_planer.wetterwacht import SCENARIOS, run_once, scenario_hours
+from blattwerk import alerts
+from blattwerk.alerts import Hour, PlantInfo, actions, detect
+from blattwerk.plan import WATERING
+from blattwerk.wetterwacht import SCENARIOS, run_once, scenario_hours
 from tests.conftest import BASE, DATABASE_URL
 from tests.test_push import sub
 
@@ -216,7 +216,7 @@ def test_past_alerts_end(client: TestClient, db: Engine) -> None:
 
 
 def test_weather_api_lists_active_alerts(client: TestClient) -> None:
-    from garten_planer.routes.weather import get_influx
+    from blattwerk.routes.weather import get_influx
 
     setup_garden(client)
     now = datetime.now(TZ)
@@ -293,7 +293,7 @@ def test_alerts_endpoint(client: TestClient) -> None:
 
 
 def test_silent_sensors_push_once_a_day(client: TestClient, db: Engine) -> None:
-    from garten_planer.wetterwacht import check_sensor_feed
+    from blattwerk.wetterwacht import check_sensor_feed
 
     setup_garden(client)
 

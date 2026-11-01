@@ -8,7 +8,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from garten_planer.routes.todos import TZ, now
+from blattwerk.routes.todos import TZ, now
 from tests.conftest import BASE
 
 H = {"Origin": BASE}

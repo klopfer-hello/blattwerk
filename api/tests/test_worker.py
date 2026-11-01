@@ -10,8 +10,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer.routes.todos import TZ, now
-from garten_planer.worker import run_digest, send_pending
+from blattwerk.routes.todos import TZ, now
+from blattwerk.worker import run_digest, send_pending
 from tests.conftest import BASE, DATABASE_URL
 from tests.test_push import FCM, sub
 

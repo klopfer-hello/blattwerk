@@ -13,8 +13,8 @@ from PIL import Image
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer import garten_tools as gt
-from garten_planer.worker import run_chat_jobs
+from blattwerk import blattwerk_tools as gt
+from blattwerk.worker import run_chat_jobs
 from tests.conftest import BASE, DATABASE_URL
 
 H = {"Origin": BASE}
@@ -130,7 +130,7 @@ def test_a_text_follow_up_keeps_the_photos(client: TestClient) -> None:
 
 
 def test_unsent_uploads_are_limited(client: TestClient, db: Engine) -> None:
-    from garten_planer.routes.photos import MAX_UNSENT
+    from blattwerk.routes.photos import MAX_UNSENT
 
     first = upload(client, jpeg(64, 64)).json()["id"]
     with db.begin() as c:
@@ -156,7 +156,7 @@ def test_photo_ids_must_be_fresh_own_uploads(client: TestClient, case: str) -> N
 
 
 def test_unsent_uploads_are_purged(client: TestClient, db: Engine) -> None:
-    from garten_planer.routes.photos import purge_photos
+    from blattwerk.routes.photos import purge_photos
 
     upload(client, jpeg(64, 64))
     with db.begin() as c:

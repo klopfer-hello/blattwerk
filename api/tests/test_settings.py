@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, insert
 
-from garten_planer.schema import settings
+from blattwerk.schema import settings
 from tests.conftest import BASE
 
 JSON = {"Content-Type": "application/json", "Origin": BASE}

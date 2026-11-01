@@ -5,8 +5,8 @@ from collections.abc import Iterator
 
 from fastapi.testclient import TestClient
 
-from garten_planer.config import Config
-from garten_planer.main import create_app
+from blattwerk.config import Config
+from blattwerk.main import create_app
 from tests.conftest import BASE
 from tests.test_settings import VALID
 

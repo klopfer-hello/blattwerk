@@ -11,13 +11,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import OperationalError
 
-from garten_planer.config import Config
-from garten_planer.main import create_app
-from garten_planer.migrate import upgrade
+from blattwerk.config import Config
+from blattwerk.main import create_app
+from blattwerk.migrate import upgrade
 
-DATABASE_URL = os.environ.get(
-    "GP_TEST_DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/garten_planer_test"
-)
+DATABASE_URL = os.environ.get("BW_TEST_DATABASE_URL", "postgresql+psycopg://test:test@localhost:5432/blattwerk_test")
 BASE = "http://testserver"
 TABLES = ", ".join([
     "diagnoses", "photos", "chat_actions", "chat_messages", "chats",

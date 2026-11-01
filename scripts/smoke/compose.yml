@@ -1,5 +1,5 @@
 # UI smoke stack (scripts/ui-smoke.sh): the real images with an invented demo garden,
-# offline (no Claude, no weather), data in tmpfs. Project garten-planer-smoke, removed
+# offline (no Claude, no weather), data in tmpfs. Project blattwerk-smoke, removed
 # after every run. The api's container name is the one nginx proxies to.
 services:
   db:
@@ -7,18 +7,18 @@ services:
     environment:
       POSTGRES_USER: smoke
       POSTGRES_PASSWORD: smoke
-      POSTGRES_DB: garten_planer
+      POSTGRES_DB: blattwerk
     tmpfs: [/var/lib/postgresql/data]
     healthcheck:
-      test: ["CMD", "pg_isready", "-U", "smoke", "-d", "garten_planer"]
+      test: ["CMD", "pg_isready", "-U", "smoke", "-d", "blattwerk"]
       interval: 2s
       retries: 30
 
   migrate:
     image: ${SMOKE_API_IMAGE:?}
-    command: ["python", "-m", "garten_planer.migrate"]
+    command: ["python", "-m", "blattwerk.migrate"]
     environment:
-      GP_DATABASE_URL: postgresql+psycopg://smoke:smoke@db:5432/garten_planer
+      BW_DATABASE_URL: postgresql+psycopg://smoke:smoke@db:5432/blattwerk
     depends_on:
       db:
         condition: service_healthy
@@ -27,9 +27,9 @@ services:
     image: ${SMOKE_API_IMAGE:?}
     networks:
       default:
-        aliases: [garten-planer-api]   # what nginx in the web image proxies to (no fixed container name)
+        aliases: [blattwerk-api]   # what nginx in the web image proxies to (no fixed container name)
     environment:
-      GP_DATABASE_URL: postgresql+psycopg://smoke:smoke@db:5432/garten_planer
+      BW_DATABASE_URL: postgresql+psycopg://smoke:smoke@db:5432/blattwerk
     depends_on:
       migrate:
         condition: service_completed_successfully
@@ -38,7 +38,7 @@ services:
     image: ${SMOKE_WEB_IMAGE:?}
     networks:
       default:
-        aliases: [garten-planer-smoke-web]
+        aliases: [blattwerk-smoke-web]
     depends_on: [api]
 
   smoke:
@@ -48,7 +48,7 @@ services:
     command: ["sh", "-c", "pip install -q --disable-pip-version-check --no-deps --require-hashes --target /tmp/pw -r requirements.txt && PYTHONPATH=/tmp/pw python smoke.py"]
     user: "${SMOKE_UID:-0}:${SMOKE_GID:-0}"   # screenshots belong to the one who runs the smoke
     environment:
-      BASE: http://garten-planer-smoke-web:8080
+      BASE: http://blattwerk-smoke-web:8080
       HOME: /tmp
     volumes:
       - ./:/smoke

@@ -188,7 +188,7 @@ def main() -> None:
         for size, (w, h) in SIZES.items():
             ctx = browser.new_context(viewport={"width": w, "height": h}, is_mobile=size != "desktop",
                                       has_touch=size != "desktop", locale="de-DE", timezone_id="Europe/Berlin")  # fmt: skip
-            ctx.add_init_script("try { localStorage.setItem('garten-planer-welcomed-v2', '1') } catch (e) {}")
+            ctx.add_init_script("try { localStorage.setItem('blattwerk-welcomed-v2', '1') } catch (e) {}")
             page = ctx.new_page()
             current = {"name": ""}
 

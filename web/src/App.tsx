@@ -10,7 +10,7 @@ import { More, Weather } from './screens/More';
 import { ChatView, Chats } from './screens/Chat';
 import { Settings } from './screens/Settings';
 
-const KEY = 'garten-planer-welcomed-v2';
+const KEY = 'blattwerk-welcomed-v2';
 function seen(): boolean {
   try { return localStorage.getItem(KEY) === '1'; } catch { return false; }
 }
@@ -54,7 +54,7 @@ function Welcome({ onClose }: { onClose: () => void }) {
   return (
     <div role="dialog" aria-modal="true" aria-labelledby="welcome-title" style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.45)', zIndex: 40, display: 'flex', alignItems: 'flex-end', justifyContent: 'center' }}>
       <div className="stack" style={{ background: 'var(--bg)', width: '100%', maxWidth: 520, borderRadius: '20px 20px 0 0', padding: '24px 20px calc(24px + env(safe-area-inset-bottom))', gap: 14 }}>
-        <h2 id="welcome-title" style={{ fontSize: 24 }}>Willkommen im Garten-Planer</h2>
+        <h2 id="welcome-title" style={{ fontSize: 24 }}>Willkommen bei Blattwerk</h2>
         <ul style={{ margin: 0, paddingLeft: 20, display: 'flex', flexDirection: 'column', gap: 8 }}>
           <li><strong>Heute</strong>: die Aufgaben dieses Monats. Kästchen antippen = erledigt, Text antippen = Anleitung, Notiz, Verschieben.</li>
           <li><strong>Kalender</strong>: was in jedem Monat ansteht.</li>

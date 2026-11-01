@@ -11,7 +11,7 @@ import pytest
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer import pheno, pheno_fetch
+from blattwerk import pheno, pheno_fetch
 from tests.conftest import DATABASE_URL
 from tests.test_pheno import HEAD, STATIONS, report
 

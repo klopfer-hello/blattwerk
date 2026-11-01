@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Backup / restore of the garten-planer database ON the Docker host (archives
+# Backup / restore of the blattwerk database ON the Docker host (archives
 # never leave the host). Copies the current deploy/backup.sh there and runs it.
 #   scripts/backup.sh create [label]    e.g. before a deploy with a schema change
 #   scripts/backup.sh list

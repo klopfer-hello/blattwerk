@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from garten_planer.legal import LegalSettings, PlantFacts, adjust_window, is_fruit_tree, notes
+from blattwerk.legal import LegalSettings, PlantFacts, adjust_window, is_fruit_tree, notes
 
 D = date
 HEDGE = PlantFacts(woody=True, growth="hecke", fruit_tree=False, girth_cm=None)

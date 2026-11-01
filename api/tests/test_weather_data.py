@@ -11,9 +11,9 @@ from zoneinfo import ZoneInfo
 import httpx
 import pytest
 
-from garten_planer import mosmix
-from garten_planer.influx import Influx, InfluxError, line
-from garten_planer.weather import summarise
+from blattwerk import mosmix
+from blattwerk.influx import Influx, InfluxError, line
+from blattwerk.weather import summarise
 
 TZ = ZoneInfo("Europe/Berlin")
 SAMPLE = (Path(__file__).parent / "fixtures" / "mosmix_sample.kml").read_bytes()
@@ -198,16 +198,16 @@ def test_no_forecast_is_stale() -> None:
 
 
 def test_forecast_query_starts_at_local_midnight() -> None:
-    from garten_planer.weather import fc_sql
+    from blattwerk.weather import fc_sql
 
     sql = fc_sql(datetime(2026, 11, 1, 0, 0, tzinfo=TZ))
     assert "time >= '2026-10-31T23:00:00'" in sql and "INTERVAL '3 days'" in sql
 
 
 def test_empty_coordinates_mean_not_configured(monkeypatch: pytest.MonkeyPatch) -> None:
-    from garten_planer.config import Config
+    from blattwerk.config import Config
 
-    monkeypatch.setenv("GP_LAT", "")
+    monkeypatch.setenv("BW_LAT", "")
     assert Config().lat is None
 
 
@@ -232,7 +232,7 @@ class FakeInflux:
 
 
 def test_weather_route(client) -> None:  # type: ignore[no-untyped-def]
-    from garten_planer.routes.weather import get_influx
+    from blattwerk.routes.weather import get_influx
 
     client.app.dependency_overrides[get_influx] = lambda: FakeInflux()
     w = client.get("/api/weather").json()
@@ -291,7 +291,7 @@ def test_days_are_local_days_across_the_dst_change() -> None:
 
 
 def test_influx_init_retries_until_the_database_answers(monkeypatch: pytest.MonkeyPatch) -> None:
-    from garten_planer import influx as influx_mod
+    from blattwerk import influx as influx_mod
 
     calls = {"n": 0}
 
@@ -303,7 +303,7 @@ def test_influx_init_retries_until_the_database_answers(monkeypatch: pytest.Monk
     async def no_sleep(_s: float) -> None:
         return None
 
-    monkeypatch.setenv("GP_INFLUX_TOKEN", "t")
+    monkeypatch.setenv("BW_INFLUX_TOKEN", "t")
     monkeypatch.setattr(influx_mod.Influx, "ensure_database", flaky)
     monkeypatch.setattr(influx_mod.asyncio, "sleep", no_sleep)
     assert run(influx_mod._init()) == 0 and calls["n"] == 3

@@ -124,7 +124,7 @@ export function TodoItem({ t, busy, onToggle, onSoil, onLater }: { t: Todo; busy
       </button>
       <a className="todo-body" href={`#/aufgabe/${t.id}`}>
         <span className="todo-title">{t.task.title}</span>
-        <span className="row" style={{ gap: 6 }}><TaskChip category={t.task.category} />{t.plant && <span className="small muted">{t.plant.title}</span>}</span>
+        <span className="row" style={{ gap: 6 }}><TaskChip category={t.task.category} />{t.plant && <span className="small muted">{t.plant.title}{t.plant.standort ? ` · ${t.plant.standort}` : ''}</span>}</span>
         <span className={!done && (t.overdue || t.task.urgent) ? 'when urgent' : done ? 'small muted' : 'when'}>{whenText(t)}</span>
         {!done && t.legal_adjustment && <span className="small" style={{ color: 'var(--legal)', fontWeight: 700 }}>{t.legal_adjustment.startsWith('Verschoben') ? '§ verschoben (Vogelschutzzeit)' : '§ Zeitraum angepasst (Vogelschutzzeit)'}</span>}
         {!done && t.task.amount_ml && <span className="small">ca. {t.task.amount_ml >= 1000 ? `${(t.task.amount_ml / 1000).toLocaleString('de-DE')} l` : `${t.task.amount_ml} ml`}</span>}

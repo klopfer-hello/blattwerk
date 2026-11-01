@@ -381,7 +381,7 @@ wheels = [
 ]
 
 [[package]]
-name = "garten-planer-api"
+name = "blattwerk-api"
 version = "0.0.0"
 source = { editable = "." }
 dependencies = [

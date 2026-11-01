@@ -1,4 +1,4 @@
-// Typed client for the garten-planer API (same origin, /api/...). Errors come
+// Typed client for the blattwerk API (same origin, /api/...). Errors come
 // back as ApiError with the HTTP status and, for 422, the invalid fields.
 
 export const BUNDESLAENDER = [
@@ -163,7 +163,7 @@ export interface Todo {
   soil?: Soil | null;  // watering: how the soil was (once)
   blocked_until: string | null;  // strong cut not allowed today (§ 39): first allowed day
   task: { id: string; title: string; category: Category; urgent: boolean; instructions: string; recurrence: Recurrence; amount_ml?: number | null };
-  plant: { id: string; title: string } | null;
+  plant: { id: string; title: string; standort?: string | null } | null;
 }
 export type Soil = 'feucht' | 'passt' | 'trocken';
 export interface Heute { year: number; month: number; open: Todo[]; done: Todo[] }

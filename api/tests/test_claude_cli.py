@@ -4,7 +4,7 @@ import json
 
 import pytest
 
-from garten_planer.claude_cli import ClaudeError, parse_result
+from blattwerk.claude_cli import ClaudeError, parse_result
 
 
 def envelope(**kw: object) -> str:

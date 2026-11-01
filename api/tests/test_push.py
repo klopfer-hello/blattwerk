@@ -11,7 +11,7 @@ from cryptography.hazmat.primitives import serialization
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 
-from garten_planer.digest import digest_due, digest_text
+from blattwerk.digest import digest_due, digest_text
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
@@ -43,7 +43,7 @@ def test_known_push_services_are_accepted(client: TestClient, endpoint: str) -> 
         "http://fcm.googleapis.com/fcm/send/x",  # not https
         "https://evil.example/fcm.googleapis.com",
         "https://fcm.googleapis.com.evil.example/x",
-        "https://garten-planer-db:5432/x",  # internal host (SSRF)
+        "https://blattwerk-db:5432/x",  # internal host (SSRF)
         "https://user" + "@" + "fcm.googleapis.com/x",  # userinfo in a URL (built in parts: not an address)
         "https://fcm.googleapis.com:8443/x",
         "https://notpush.apple.com/x",
@@ -83,7 +83,7 @@ def test_test_message_goes_to_the_outbox(client: TestClient, db: Engine) -> None
     assert client.post("/api/push/test", json={"endpoint": FCM}, headers=H).status_code == 202
     with db.connect() as c:
         assert c.execute(text("SELECT title FROM push_messages WHERE sent_at IS NULL")).scalars().all() == [
-            "Test vom Garten-Planer"
+            "Test vom Blattwerk"
         ]
     assert client.post("/api/push/test", json={"endpoint": FCM + "x"}, headers=H).status_code == 404
 
@@ -142,7 +142,7 @@ def test_digest_text(titles: list[str], expected: tuple[str, str]) -> None:
 def test_keygen_output_works_with_pywebpush() -> None:
     from py_vapid import Vapid
 
-    from garten_planer.push import keygen
+    from blattwerk.push import keygen
 
     public, private = keygen()
     vapid = Vapid.from_string(private)

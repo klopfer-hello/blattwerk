@@ -7,7 +7,7 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, delete, update
 from sqlalchemy.exc import IntegrityError
 
-from garten_planer.schema import plants, standorte
+from blattwerk.schema import plants, standorte
 from tests.conftest import BASE
 
 H = {"Origin": BASE}

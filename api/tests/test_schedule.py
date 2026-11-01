@@ -4,7 +4,7 @@ from datetime import date
 
 import pytest
 
-from garten_planer.schedule import Occurrence, TaskTiming, interval_after, months_in_year, occurrences, yearly_window
+from blattwerk.schedule import Occurrence, TaskTiming, interval_after, months_in_year, occurrences, yearly_window
 
 D = date
 

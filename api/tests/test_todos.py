@@ -7,7 +7,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from garten_planer.routes.todos import TZ, now
+from blattwerk.routes.todos import TZ, now
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
@@ -55,7 +55,7 @@ def test_yearly_task_shows_up_in_its_month(client: TestClient, plant_id: str) ->
     assert (h["year"], h["month"]) == (2026, 11)
     [todo] = h["open"]
     assert todo["task"]["id"] == t["id"] and todo["task"]["category"] == "pflanzenschutz"
-    assert todo["plant"] == {"id": plant_id, "title": "Apfel \u2018Sonate\u2019"}
+    assert todo["plant"] == {"id": plant_id, "title": "Apfel \u2018Sonate\u2019", "standort": "Weg"}
     assert (todo["due_from"], todo["due_to"], todo["overdue"]) == ("2026-11-01", "2026-11-30", False)
     assert heute(client)["open"] == h["open"]  # reading twice creates nothing twice
 

@@ -3,8 +3,8 @@ words and trade marks → ranked (species, Sorte, form) candidates. Pure, no DB.
 
 import pytest
 
-from garten_planer.resolver import Catalog, resolve
-from garten_planer.seed import load_seed
+from blattwerk.resolver import Catalog, resolve
+from blattwerk.seed import load_seed
 
 
 @pytest.fixture(scope="module")

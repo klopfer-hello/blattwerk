@@ -3,7 +3,7 @@
 #   scripts/test.sh          api (lint, types, pytest against a real PostgreSQL) + web (type-check, build)
 #   scripts/test.sh api      only the api suite;  scripts/test.sh web   only the web build
 #   scripts/test.sh api -k settings   extra args go to pytest
-# The api stack runs as compose project garten-planer-test and is always removed.
+# The api stack runs as compose project blattwerk-test and is always removed.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export MSYS_NO_PATHCONV=1
@@ -12,7 +12,7 @@ rc=0
 
 if [[ $what == all || $what == api ]]; then
   echo "==> api"
-  compose=(docker compose -p garten-planer-test -f api/compose.test.yml)
+  compose=(docker compose -p blattwerk-test -f api/compose.test.yml)
   trap '"${compose[@]}" down -v --remove-orphans >/dev/null 2>&1 || true' EXIT
   "${compose[@]}" build -q tests
   if [[ $# -gt 0 ]]; then

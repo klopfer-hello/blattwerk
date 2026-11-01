@@ -11,8 +11,8 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.exc import DataError, DBAPIError, IntegrityError, OperationalError
 
-from garten_planer.main import db_error_response
-from garten_planer.schema import metadata
+from blattwerk.main import db_error_response
+from blattwerk.schema import metadata
 from tests.conftest import BASE
 
 H = {"Origin": BASE}

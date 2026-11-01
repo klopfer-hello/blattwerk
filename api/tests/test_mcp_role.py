@@ -10,12 +10,12 @@ from sqlalchemy import Engine, create_engine, text
 from sqlalchemy.exc import ProgrammingError
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer import garten_tools as gt
-from garten_planer.migrate import set_mcp_password
+from blattwerk import blattwerk_tools as gt
+from blattwerk.migrate import set_mcp_password
 from tests.conftest import DATABASE_URL
-from tests.test_garten_tools import chat_message, garden
+from tests.test_blattwerk_tools import chat_message, garden
 
-MCP_URL = DATABASE_URL.replace("//test:test@", "//garten_mcp:mcp-test-pw@")
+MCP_URL = DATABASE_URL.replace("//test:test@", "//blattwerk_mcp:mcp-test-pw@")
 
 
 @pytest.fixture

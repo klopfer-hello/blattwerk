@@ -228,7 +228,7 @@ export function More({ onWelcome }: { onWelcome: () => void }) {
           <span className="stack" style={{ gap: 2 }}><strong style={{ fontSize: 17 }}>Kurze Erklärung</strong><span className="small muted">Die Begrüßung mit den Tipps noch einmal zeigen</span></span>
         </button>
       </nav>
-      <span className="tiny">Garten-Planer {version || '…'}</span>
+      <span className="tiny">Blattwerk {version || '…'}</span>
     </div>
   );
 }

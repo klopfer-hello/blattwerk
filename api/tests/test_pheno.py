@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 
-from garten_planer import pheno
+from blattwerk import pheno
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
@@ -196,7 +196,7 @@ def test_normals_job_runs_at_once_for_a_new_region_and_backs_off_after_a_failure
 
     from sqlalchemy.ext.asyncio import create_async_engine
 
-    from garten_planer import pheno_fetch
+    from blattwerk import pheno_fetch
     from tests.conftest import DATABASE_URL
 
     def due(job: dict[str, object]) -> bool:

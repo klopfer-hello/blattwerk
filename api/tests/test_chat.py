@@ -11,9 +11,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer.chat import parse_event
-from garten_planer.claude_cli import ClaudeError
-from garten_planer.worker import TURN, run_chat_jobs
+from blattwerk.chat import parse_event
+from blattwerk.claude_cli import ClaudeError
+from blattwerk.worker import TURN, run_chat_jobs
 from tests.conftest import BASE, DATABASE_URL
 
 H = {"Origin": BASE}
@@ -187,7 +187,7 @@ def test_short_narration_goes_the_answer_stays(client: TestClient) -> None:
 
 
 def test_stream_ends_with_timeout_when_no_answer_comes(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
-    from garten_planer.routes import chat as chat_routes
+    from blattwerk.routes import chat as chat_routes
 
     monkeypatch.setattr(chat_routes, "STREAM_MAX_S", 0.5)
     monkeypatch.setattr(chat_routes, "STREAM_POLL_S", 0.1)
@@ -198,10 +198,10 @@ def test_stream_ends_with_timeout_when_no_answer_comes(client: TestClient, monke
 
 
 def test_a_chat_answer_without_claude_fails_clearly_and_does_not_count(client: TestClient, db: Engine) -> None:
-    from garten_planer.claude_cli import NotReady
+    from blattwerk.claude_cli import NotReady
 
     first = ask(client, "Frage")
-    work(fake(NotReady("Der Garten-Chat ist noch nicht eingerichtet (GP_MCP_DB_PASSWORD fehlt).")))
+    work(fake(NotReady("Der Garten-Chat ist noch nicht eingerichtet (BW_MCP_DB_PASSWORD fehlt).")))
     m = client.get(f"/api/chats/{first['chat_id']}").json()["messages"][1]
     assert m["status"] == "failed" and "noch nicht eingerichtet" in m["error"]
     with db.connect() as c:

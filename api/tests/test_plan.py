@@ -10,11 +10,11 @@ from fastapi.testclient import TestClient
 from sqlalchemy import Engine, text
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer import worker
-from garten_planer.claude_cli import ClaudeError
-from garten_planer.plan import PlanFacts, build_prompt, sanitize
-from garten_planer.routes.todos import TZ, now
-from garten_planer.worker import run_plan_jobs
+from blattwerk import worker
+from blattwerk.claude_cli import ClaudeError
+from blattwerk.plan import PlanFacts, build_prompt, sanitize
+from blattwerk.routes.todos import TZ, now
+from blattwerk.worker import run_plan_jobs
 from tests.conftest import BASE, DATABASE_URL
 
 H = {"Origin": BASE}
@@ -295,7 +295,7 @@ def test_a_paused_plan_task_stays_paused_in_the_next_plan(client: TestClient) ->
 
 
 def test_a_job_that_never_reached_claude_does_not_count(client: TestClient, db: Engine) -> None:
-    from garten_planer.claude_cli import NotReady
+    from blattwerk.claude_cli import NotReady
 
     pid = hedge(client)
     client.post(f"/api/plants/{pid}/plan", headers=H)
@@ -317,7 +317,7 @@ def test_a_job_that_never_reached_claude_does_not_count(client: TestClient, db: 
     ],
 )
 def test_dry_keeps_german_text_whole(text: str, dried: str) -> None:
-    from garten_planer.plan import dry
+    from blattwerk.plan import dry
 
     assert dry(text) == dried
 

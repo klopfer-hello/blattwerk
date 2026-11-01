@@ -1,7 +1,7 @@
 [project]
-name = "garten-planer-api"
+name = "blattwerk-api"
 version = "0.0.0"  # product version comes from /VERSION at build time
-description = "Backend of the garten-planer app"
+description = "Backend of the blattwerk app"
 requires-python = ">=3.13,<3.14"
 dependencies = [
   "fastapi>=0.120",
@@ -32,7 +32,7 @@ requires = ["hatchling>=1.27"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/garten_planer"]
+packages = ["src/blattwerk"]
 
 [tool.uv]
 # Only releases at least two weeks old (supply-chain hygiene, see the security rules).
@@ -50,8 +50,8 @@ ignore = ["S101"]  # assert is fine in tests
 strict = true
 python_version = "3.13"
 mypy_path = "src"
-packages = ["garten_planer"]
-exclude = ["src/garten_planer/migrations/"]  # alembic scripts: dynamic, revision file names
+packages = ["blattwerk"]
+exclude = ["src/blattwerk/migrations/"]  # alembic scripts: dynamic, revision file names
 
 [tool.pytest.ini_options]
 filterwarnings = ["error"]  # a new deprecation fails the run (ticket 012)

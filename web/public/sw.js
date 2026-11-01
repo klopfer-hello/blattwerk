@@ -14,12 +14,12 @@ function sameOrigin(u) {
 self.addEventListener('push', (event) => {
   let d = {};
   try { d = event.data ? event.data.json() : {}; } catch { d = { body: event.data ? event.data.text() : '' }; }
-  event.waitUntil(self.registration.showNotification(d.title || 'Garten-Planer', {
+  event.waitUntil(self.registration.showNotification(d.title || 'Blattwerk', {
     body: d.body || '',
     icon: '/icon-192.png',
     badge: '/icon-192.png',
     data: { url: sameOrigin(d.url) },
-    tag: 'garten-planer',
+    tag: 'blattwerk',
     renotify: true,
   }));
 });

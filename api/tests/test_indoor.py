@@ -13,10 +13,10 @@ from PIL import Image
 from sqlalchemy import Engine
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from garten_planer import plan
-from garten_planer.routes.todos import TZ, now
-from garten_planer.schedule import TaskTiming, interval_after, occurrences
-from garten_planer.worker import run_name_jobs
+from blattwerk import plan
+from blattwerk.routes.todos import TZ, now
+from blattwerk.schedule import TaskTiming, interval_after, occurrences
+from blattwerk.worker import run_name_jobs
 from tests.conftest import BASE, DATABASE_URL
 
 H = {"Origin": BASE}
@@ -189,7 +189,7 @@ def test_no_watering_todos_for_a_plant_that_is_outside(client: TestClient, db: E
 
 
 def test_rhythm_follows_the_next_date() -> None:
-    from garten_planer.schedule import rhythm_field
+    from blattwerk.schedule import rhythm_field
 
     t = TaskTiming("interval", interval_days=7, winter_interval_days=21)
     assert rhythm_field(date(2026, 10, 28), t) == "winter_interval_days"  # next one in November
@@ -197,7 +197,7 @@ def test_rhythm_follows_the_next_date() -> None:
 
 
 def test_seasonal_calendar_projection() -> None:
-    from garten_planer.schedule import months_in_year
+    from blattwerk.schedule import months_in_year
 
     repot = TaskTiming("interval", interval_days=730, month_from=3, month_to=4, start_date=date(2026, 10, 1))
     assert months_in_year(repot, 2027) == [3]
@@ -254,7 +254,7 @@ def test_no_bird_protection_period_indoors(client: TestClient) -> None:
 
 
 def test_weather_watch_ignores_indoor_plants(client: TestClient, db: Engine) -> None:
-    from garten_planer.wetterwacht import garden_plants
+    from blattwerk.wetterwacht import garden_plants
 
     plant(client, standort(client, "zimmer", "Gästezimmer"), nickname="Drinnen")
     plant(client, standort(client, "kuebelplatz", "Balkon"), nickname="Draussen", in_container=True)
@@ -435,3 +435,17 @@ def test_indoor_plan_keeps_the_amount() -> None:
     t = plan.sanitize(_raw(WATER_TASK | {"amount_ml": 300}), indoor=True).tasks[0]
     assert t.amount_ml == 300
     assert plan.sanitize(_raw(WATER_TASK | {"amount_ml": 999999}), indoor=True).tasks[0].amount_ml == 20000
+
+
+def test_calendar_is_for_outside_and_todos_name_the_standort(client: TestClient) -> None:
+    on(client, NOV_2)
+    inside = plant(client, standort(client, "zimmer", "Schlafzimmer"))
+    outside = plant(client, standort(client, "beet", "Staudenbeet"))
+    water(client, inside["id"])
+    body = {"title": "Laub entfernen", "category": "sonstiges", "recurrence": "yearly", "month_from": 11,
+            "month_to": 11, "plant_id": outside["id"]}  # fmt: skip
+    client.post("/api/tasks", json=body, headers=H)
+    cal = client.get("/api/calendar?year=2026").json()["months"]
+    assert {e["title"] for month in cal for e in month} == {"Laub entfernen"}
+    todos = client.get("/api/todos/heute").json()["open"]
+    assert {t["plant"]["standort"] for t in todos} == {"Schlafzimmer", "Staudenbeet"}

@@ -71,7 +71,7 @@ export function Nav({ route, urgent }: { route: string; urgent: number }) {
   return (
     <>
       <header className="topbar">
-        <strong style={{ fontSize: 20, color: 'var(--green)' }}>Garten-Planer</strong>
+        <strong style={{ fontSize: 20, color: 'var(--green)' }}>Blattwerk</strong>
         <nav aria-label="Hauptnavigation">
           {TABS.map((t) => (
             <a key={t.key} href={`#/${t.key}`} aria-current={current === t.key ? 'page' : undefined}>{t.label}</a>
