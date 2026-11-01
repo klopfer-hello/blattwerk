@@ -130,12 +130,15 @@ export function TodoItem({ t, busy, onToggle, onSoil, onLater }: { t: Todo; busy
         {!done && t.task.amount_ml && <span className="small">ca. {t.task.amount_ml >= 1000 ? `${(t.task.amount_ml / 1000).toLocaleString('de-DE')} l` : `${t.task.amount_ml} ml`}</span>}
         {t.soil && <span className="small muted">{t.status === 'skipped' ? 'Noch zu feucht – schaut in ein paar Tagen wieder' : `Erde vorher: ${SOIL.find(([k]) => k === t.soil)?.[1]}`}</span>}
       </a>
+      {canWait && (
+        <button className="btn small" disabled={busy} onClick={onLater}
+          aria-label={`${t.task.title}: ${t.task.category === 'giessen' ? 'Erde noch zu feucht' : 'noch feucht genug'} – später`}
+          style={{ flex: 'none', alignSelf: 'center', minHeight: 44, padding: '4px 10px', lineHeight: 1.15, flexDirection: 'column', gap: 0 }}>
+          <span>{t.task.category === 'giessen' ? 'Zu feucht' : 'Feucht genug'}</span>
+          <span className="tiny" style={{ color: 'inherit', opacity: 0.75 }}>später</span>
+        </button>
+      )}
     </div>
-    {canWait && (
-      <button className="btn small" style={{ marginLeft: 44, alignSelf: 'flex-start', minHeight: 44 }} disabled={busy} onClick={onLater}>
-        {t.task.category === 'giessen' ? 'Erde noch zu feucht – später' : 'Noch feucht genug – später'}
-      </button>
-    )}
     {askSoil && (
       <div className="stack" style={{ gap: 6, paddingLeft: 44 }}>
         <span className="small">Wie war die Erde vor dem Gießen? (passt den Rhythmus an)</span>
