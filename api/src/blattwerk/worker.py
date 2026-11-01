@@ -315,7 +315,12 @@ async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
         )
     ).one()
     g = await _settings(c)
+    off = await c.execute(  # switched off by the user: the next plan must not bring them back
+        select(tasks.c.title).where(tasks.c.plant_id == plant_id, ~tasks.c.enabled, ~tasks.c.retired)
+        .order_by(tasks.c.title)
+    )  # fmt: skip
     return PlanFacts(
+        declined=tuple(dict.fromkeys(off.scalars())),
         latin=r.latin,
         german=(r.german or [r.latin])[0],
         cultivar=r.cultivar_name,

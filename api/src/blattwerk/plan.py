@@ -73,6 +73,9 @@ Regeln:
 - Ökologische Empfehlungen beachten, wenn eingeschaltet (Samenstände/Halme über den Winter stehen lassen).
 - "winterhaerte_c": tiefste Temperatur in °C, die diese Pflanze ausgepflanzt übersteht (für Frostwarnungen);
   null, wenn unklar.
+- "vom_nutzer_abgeschaltet": Aufgaben, die der Nutzer für diese Pflanze abgeschaltet hat (z. B. weil sie fest
+  an der Wand hängt). Schlage sie NICHT wieder vor, auch nicht unter anderem Namen oder als Teil einer anderen
+  Aufgabe.
 - Anleitungen als kurze Schritte; "why" in einem Satz. Höchstens 12 Aufgaben, nur das Wichtige."""
 
 SYSTEM_INDOOR = """Du bist erfahrene Zimmerpflanzen-Gärtnerin und erstellst einen Pflegeplan für genau eine
@@ -102,6 +105,9 @@ Regeln:
   Vorbeugung, Kontrolle und Behandlung, zuerst mechanisch/biologisch.
 - Keine Frost-, Garten- oder Schnittaufgaben nach Gartenkalender, keine "pheno_phase". "cut_type" nur bei
   category "schnitt" ("pflege"), sonst null. "winterhaerte_c": null.
+- "vom_nutzer_abgeschaltet": Aufgaben, die der Nutzer für diese Pflanze abgeschaltet hat (z. B. weil sie fest
+  an der Wand hängt). Schlage sie NICHT wieder vor, auch nicht unter anderem Namen oder als Teil einer anderen
+  Aufgabe.
 - Anleitungen als kurze Schritte; "why" in einem Satz. Höchstens 8 Aufgaben, nur das Wichtige."""
 
 
@@ -240,6 +246,7 @@ class PlanFacts:
     pot_cm: int | None = None
     pot_material: str | None = None
     height_cm: int | None = None
+    declined: tuple[str, ...] = ()  # titles of tasks the user switched off for this plant
 
     @property
     def indoor(self) -> bool:
@@ -262,6 +269,7 @@ def build_prompt(f: PlanFacts) -> str:
             "topf_material": f.pot_material or "unbekannt",
             "hoehe_cm": f.height_cm,
             "duenger_vorliebe": f.fertiliser,
+            **({"vom_nutzer_abgeschaltet": list(f.declined)} if f.declined else {}),
         }
         return "Erstelle den Pflegeplan für diese Zimmerpflanze:\n" + json.dumps(room, ensure_ascii=False, indent=2)
     facts = {
@@ -277,6 +285,7 @@ def build_prompt(f: PlanFacts) -> str:
         "bundesland": f.bundesland or "unbekannt (Deutschland)",
         "duenger_vorliebe": f.fertiliser,
         "oekologische_empfehlungen": f.eco_defaults,
+        **({"vom_nutzer_abgeschaltet": list(f.declined)} if f.declined else {}),
     }
     return "Erstelle den Pflegeplan für diese Pflanze:\n" + json.dumps(facts, ensure_ascii=False, indent=2)
 

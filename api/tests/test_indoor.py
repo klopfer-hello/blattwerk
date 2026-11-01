@@ -3,6 +3,7 @@ watering only indoors, seasonal intervals (winter rhythm, active months), soil f
 no § 39 / weather rules indoors, the indoor care plan and plant ID by photo."""
 
 import asyncio
+import dataclasses
 import io
 from datetime import date, datetime, time, timedelta
 from typing import Any
@@ -300,6 +301,10 @@ def test_indoor_prompt_has_window_and_pot() -> None:
                        pot_material="ton")  # fmt: skip
     prompt = plan.build_prompt(f)
     assert '"fenster_richtung": "S"' in prompt and '"topf_cm": 18' in prompt
+    assert "vom_nutzer_abgeschaltet" not in prompt
+    off = plan.build_prompt(dataclasses.replace(f, declined=("Topf drehen",)))
+    assert '"vom_nutzer_abgeschaltet": [\n    "Topf drehen"\n  ]' in off
+    assert "NICHT wieder vor" in plan.SYSTEM_INDOOR and "NICHT wieder vor" in plan.SYSTEM
     assert plan.system_for(f) is plan.SYSTEM_INDOOR and "giessen" in plan.SYSTEM_INDOOR
 
 

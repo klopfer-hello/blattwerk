@@ -214,7 +214,6 @@ function CarePlanBox({ state, failed, archived, onMake, onReload }: {
           <span>{plan.summary}</span>
           {plan.caveats && <span className="small muted">Hinweis: {plan.caveats}</span>}
           {plan.prompt_version === 'plan-1' && <span className="small">Dieser Plan ist älter: neu erstellen, damit Termine der echten Jahreszeit folgen (z. B. „zur Forsythienblüte“).</span>}
-          <span className="tiny">Erstellt von der KI und geprüft gegen die Regeln (§ 39 BNatSchG). Eigene Aufgaben bleiben beim Neu-Erstellen erhalten; bearbeitete Plan-Aufgaben werden zu eigenen.</span>
         </>
       )}
       {!plan && !running && <span>Noch kein Pflegeplan. Die KI erstellt Schnitt, Düngung, Ernte und Pflanzenschutz passend zu Sorte und Standort.</span>}

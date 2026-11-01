@@ -242,7 +242,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       </div>
       {error && (Object.keys(error.fields).length === 0 || Object.keys(error.fields).some((f) => !(f in FIELD_TEXT))) && <p className="box" role="alert" style={{ color: 'var(--urgent)' }}>{error.message}</p>}
       <button className="btn primary" onClick={save} disabled={saving || !v.title.trim()}>{saving ? <Waiting text="Speichert …" /> : 'Speichern'}</button>
-      {id && <button className="btn" onClick={toggleEnabled}>{enabled ? 'Aufgabe pausieren (aus der Liste nehmen)' : 'Aufgabe wieder aktivieren'}</button>}
+      {id && <button className="btn" onClick={toggleEnabled}>{enabled ? 'Für diese Pflanze abschalten' : 'Wieder einschalten'}</button>}
     </div>
   );
 }
