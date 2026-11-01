@@ -74,7 +74,7 @@ def in_months(day: date, month_from: int, month_to: int) -> bool:
     return day.month >= month_from or day.month <= month_to
 
 
-def _in_season(t: TaskTiming, day: date) -> date:
+def in_season(t: TaskTiming, day: date) -> date:
     """An interval with a month window (fertilise Apr-Sep) rests outside it: the first day of the window."""
     if t.month_from is None or t.month_to is None or in_months(day, t.month_from, t.month_to):
         return day
@@ -91,7 +91,7 @@ def rhythm_field(closed_on: date, t: TaskTiming) -> str:
 
 def interval_after(closed_on: date, t: TaskTiming) -> Occurrence:
     days: int = getattr(t, rhythm_field(closed_on, t))
-    start = _in_season(t, closed_on + timedelta(days=days))
+    start = in_season(t, closed_on + timedelta(days=days))
     return Occurrence(start.isoformat(), start, start + timedelta(days=_slack(days)))
 
 
@@ -127,7 +127,7 @@ def occurrences(
                 out.append(o)
         return out
     assert t.interval_days is not None
-    start = _in_season(t, t.start_date or today)
+    start = in_season(t, t.start_date or today)
     o = _apply(Occurrence(start.isoformat(), start, start + timedelta(days=_slack(t.interval_days))), adjust)
     return [o] if o.due_from <= horizon else []
 
@@ -146,7 +146,7 @@ def months_in_year(t: TaskTiming, year: int) -> list[int]:
     first, jan1 = t.start_date or date(year, 1, 1), date(year, 1, 1)
     if t.winter_interval_days or t.month_from is not None:  # seasonal: step like the to-dos do
         found: set[int] = set()
-        day = _in_season(t, max(first, jan1 - timedelta(days=400)))
+        day = in_season(t, max(first, jan1 - timedelta(days=400)))
         while day.year <= year:
             if day.year == year:
                 found.add(day.month)

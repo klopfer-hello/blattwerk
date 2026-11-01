@@ -146,10 +146,12 @@ class PlantIn(Strict):
     window_distance: WindowDistance | None = None
     pot_cm: Annotated[int | None, Field(ge=3, le=200)] = None
     pot_material: PotMaterial | None = None
+    height_cm: Annotated[int | None, Field(ge=1, le=1000)] = None  # indoor: size -> how much water
     notes: Annotated[str, Field(max_length=1000)] = ""
 
     def indoor_fields(self) -> bool:
-        return any(v is not None for v in (self.window_dir, self.window_distance, self.pot_cm, self.pot_material))
+        room = (self.window_dir, self.window_distance, self.pot_cm, self.pot_material, self.height_cm)
+        return any(v is not None for v in room)
 
 
 class SpeciesRef(BaseModel):
@@ -189,6 +191,7 @@ class Plant(BaseModel):
     window_distance: WindowDistance | None = None
     pot_cm: int | None = None
     pot_material: PotMaterial | None = None
+    height_cm: int | None = None
     notes: str
     archived: bool
 
@@ -268,6 +271,7 @@ class TaskIn(Strict):
     month_to: Month | None = None
     interval_days: Annotated[int | None, Field(ge=1, le=3650)] = None
     winter_interval_days: Annotated[int | None, Field(ge=1, le=3650)] = None  # Nov-Feb (interval only)
+    amount_ml: Annotated[int | None, Field(ge=10, le=20000)] = None  # watering only: how much each time
     start_date: Day | None = None
     urgent: bool = False
     pheno_phase: PhaseKey | None = None  # F-WX-3: follow the season (yearly only; month window = fallback)
@@ -280,6 +284,8 @@ class TaskIn(Strict):
         missing = [f for f in needs[self.recurrence] if getattr(self, f) is None]
         if missing:
             raise ValueError(f"{self.recurrence} needs {', '.join(missing)}")
+        if self.amount_ml is not None and self.category != "giessen":
+            raise ValueError("an amount only for watering")
         if self.winter_interval_days is not None and self.recurrence != "interval":
             raise ValueError("a winter interval needs an interval task")
         if self.recurrence == "interval" and (self.month_from is None) != (self.month_to is None):
@@ -293,6 +299,7 @@ class TaskIn(Strict):
 
 class Task(TaskIn):
     id: str
+    next_due: date | None = None  # the next open to-do (plant page: "heute gemacht")
     plant: dict[str, str] | None
     source: str
     enabled: bool

@@ -11,7 +11,8 @@ from garten_planer.routes.todos import TZ, now
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
-OUTPUT_ONLY = ("id", "plant", "enabled", "source", "notes", "products", "why")  # task answer fields a PUT does not take
+# task answer fields a PUT does not take
+OUTPUT_ONLY = ("id", "plant", "enabled", "source", "notes", "products", "why", "next_due")
 NOV_2 = date(2026, 11, 2)
 
 
@@ -123,7 +124,7 @@ def test_changing_the_window_replaces_open_but_keeps_done(client: TestClient) ->
     client.post(f"/api/todos/{todo['id']}/done", json={}, headers=H)
     on(client, date(2027, 1, 10))
     body = {**t, "month_from": 1, "month_to": 1}
-    for k in ("id", "plant", "enabled", "source", "notes", "products", "why"):
+    for k in OUTPUT_ONLY:
         body.pop(k)
     assert client.put(f"/api/tasks/{t['id']}", json=body, headers=H).status_code == 200
     h = heute(client)

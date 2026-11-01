@@ -341,3 +341,97 @@ def test_plant_id_by_photo(client: TestClient) -> None:
 
 def test_name_lookup_needs_text_or_photo(client: TestClient) -> None:
     assert client.post("/api/species/ai", json={}, headers=H).status_code == 422
+
+
+# ----- size and amount, "noch zu feucht", done now (user feedback 2026-11-01) ---------------------------------------
+
+
+def test_height_and_amount(client: TestClient) -> None:
+    on(client, NOV_2)
+    p = plant(client, standort(client, "zimmer", "Salon"), height_cm=80, pot_cm=24)
+    assert client.get(f"/api/plants/{p['id']}").json()["height_cm"] == 80
+    t = water(client, p["id"], amount_ml=400).json()
+    assert t["amount_ml"] == 400
+    assert open_todo(client, t["id"])["task"]["amount_ml"] == 400  # type: ignore[index]
+    feed = water(client, p["id"], category="duengen", title="Düngen", amount_ml=50)
+    assert feed.status_code == 422  # an amount only for watering
+
+
+def test_still_wet_checks_again_soon_and_waters_less_often(client: TestClient) -> None:
+    on(client, date(2026, 6, 1))
+    p = plant(client, standort(client, "zimmer", "Veranda"))
+    t = water(client, p["id"], interval_days=10).json()
+    todo = open_todo(client, t["id"])
+    assert todo is not None
+    r = client.post(f"/api/todos/{todo['id']}/later", headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "skipped" and r.json()["soil"] == "feucht"
+    assert client.get(f"/api/tasks/{t['id']}").json()["interval_days"] == 12
+    nxt = open_todo(client, t["id"])
+    assert nxt is not None and nxt["due_from"] == "2026-06-04"  # look again in a few days, not in 12
+    assert client.post(f"/api/todos/{todo['id']}/later", headers=H).status_code == 409
+
+
+def test_later_not_before_it_is_due_and_undo(client: TestClient) -> None:
+    on(client, date(2026, 6, 1))
+    p = plant(client, standort(client, "zimmer", "Loggia"))
+    t = water(client, p["id"], interval_days=10, start_date="2026-06-20").json()
+    todo = client.get("/api/todos/heute").json()["open"][0]
+    assert client.post(f"/api/todos/{todo['id']}/later", headers=H).status_code == 409  # due on 20.6., not yet
+    on(client, date(2026, 6, 20))
+    assert client.post(f"/api/todos/{todo['id']}/later", headers=H).status_code == 200
+    back = client.post(f"/api/todos/{todo['id']}/undo", headers=H).json()
+    assert back["status"] == "open" and back["note"] == "" and back["soil"] is None
+    assert client.get(f"/api/tasks/{t['id']}").json()["interval_days"] == 12  # the soil was moist after all
+
+
+def test_undo_of_done_now_without_a_todo_removes_the_entry(client: TestClient) -> None:
+    on(client, NOV_2)
+    p = plant(client, standort(client, "zimmer", "Kammer"))
+    body = {"title": "Umtopfen", "category": "sonstiges", "recurrence": "yearly", "month_from": 3, "month_to": 4,
+            "plant_id": p["id"]}  # fmt: skip
+    t = client.post("/api/tasks", json=body, headers=H).json()
+    done = client.post(f"/api/tasks/{t['id']}/done-now", json={}, headers=H).json()
+    assert client.post(f"/api/todos/{done['id']}/undo", headers=H).json()["status"] == "removed"
+    assert client.get(f"/api/plants/{p['id']}/history").json() == []
+    assert open_todo(client, t["id"]) is None
+
+
+def test_later_only_for_open_watering_or_misting(client: TestClient) -> None:
+    on(client, NOV_2)
+    p = plant(client, standort(client, "zimmer", "Nische"))
+    t = water(client, p["id"], category="entstauben", title="Abstauben", interval_days=30).json()
+    todo = open_todo(client, t["id"])
+    assert todo is not None
+    assert client.post(f"/api/todos/{todo['id']}/later", headers=H).status_code == 409
+
+
+def test_done_now_resets_the_timer(client: TestClient) -> None:
+    on(client, NOV_2)
+    p = plant(client, standort(client, "zimmer", "Gang"))
+    t = water(client, p["id"], category="entstauben", title="Entstauben", interval_days=45,
+              start_date="2026-11-13").json()  # fmt: skip
+    r = client.post(f"/api/tasks/{t['id']}/done-now", json={}, headers=H)
+    assert r.status_code == 200, r.text
+    assert r.json()["status"] == "done"
+    assert open_todo(client, t["id"]) is None  # not on 13.11. anymore
+    nxt = client.get(f"/api/tasks?plant_id={p['id']}").json()[0]["next_due"]
+    assert nxt == (NOV_2 + timedelta(days=45)).isoformat()
+
+
+def test_done_now_without_an_open_todo_is_history(client: TestClient) -> None:
+    on(client, NOV_2)
+    p = plant(client, standort(client, "zimmer", "Treppenhaus"))
+    body = {"title": "Umtopfen", "category": "sonstiges", "recurrence": "yearly", "month_from": 3, "month_to": 4,
+            "plant_id": p["id"]}  # fmt: skip
+    t = client.post("/api/tasks", json=body, headers=H).json()
+    r = client.post(f"/api/tasks/{t['id']}/done-now", json={"note": "schon jetzt"}, headers=H)
+    assert r.status_code == 200, r.text
+    hist = client.get(f"/api/plants/{p['id']}/history").json()
+    assert [(h["title"], h["note"]) for h in hist] == [("Umtopfen", "schon jetzt")]
+
+
+def test_indoor_plan_keeps_the_amount() -> None:
+    t = plan.sanitize(_raw(WATER_TASK | {"amount_ml": 300}), indoor=True).tasks[0]
+    assert t.amount_ml == 300
+    assert plan.sanitize(_raw(WATER_TASK | {"amount_ml": 999999}), indoor=True).tasks[0].amount_ml == 20000

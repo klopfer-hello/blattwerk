@@ -4,7 +4,7 @@
 // their urgent to-dos are in the list like any other.
 import { useCallback, useEffect, useState } from 'react';
 import { ApiError, CATEGORIES, api, type Category, type Heute, type Soil, type Todo, type WeatherAlert } from '../api';
-import { Back, Icon, TaskChip, deDate, localDay, monthName, Waiting } from '../components/ui';
+import { Back, Icon, TaskChip, deDate, localDay, localIso, monthName, Waiting } from '../components/ui';
 import { delayText } from './More';
 
 const ORDER = Object.keys(CATEGORIES) as Category[];
@@ -23,6 +23,13 @@ export function Today() {
     setBusy(t.id);
     try { await (t.status === 'open' ? api.done(t.id) : api.undo(t.id)); await load(); }
     catch (e) { setError(e instanceof ApiError && e.status === 409 ? UNDO_409 : e instanceof ApiError ? e.message : 'Fehler'); }
+    finally { setBusy(null); }
+  }
+  async function later(t: Todo) {   // watering/misting due, but still moist: look again in a few days
+    if (busy) return;
+    setBusy(t.id);
+    try { await api.later(t.id); await load(); }
+    catch (e) { setError(e instanceof ApiError ? e.message : 'Fehler'); }
     finally { setBusy(null); }
   }
   async function soil(t: Todo, how: Soil) {   // indoor watering (M11): adjusts the rhythm once
@@ -78,7 +85,7 @@ export function Today() {
       {groups.filter((g) => g.items.length).map((g) => (
         <section key={g.key} className="stack">
           <h2 className={g.urgent ? 'eyebrow urgent' : 'eyebrow'}>{g.label}</h2>
-          {g.items.map((t) => <TodoItem key={t.id} t={t} busy={busy === t.id} onToggle={() => toggle(t)} />)}
+          {g.items.map((t) => <TodoItem key={t.id} t={t} busy={busy === t.id} onToggle={() => toggle(t)} onLater={() => later(t)} />)}
         </section>
       ))}
 
@@ -103,8 +110,10 @@ function whenText(t: Todo): string {
 
 const SOIL: [Soil, string][] = [['feucht', 'noch feucht'], ['passt', 'passt'], ['trocken', 'knochentrocken']];
 
-export function TodoItem({ t, busy, onToggle, onSoil }: { t: Todo; busy: boolean; onToggle: () => void; onSoil?: (how: Soil) => void }) {
+export function TodoItem({ t, busy, onToggle, onSoil, onLater }: { t: Todo; busy: boolean; onToggle: () => void; onSoil?: (how: Soil) => void; onLater?: () => void }) {
   const done = t.status !== 'open';
+  const dueNow = t.due_from <= localIso();  // "später" only once it is due
+  const canWait = onLater && !done && dueNow && (t.task.category === 'giessen' || t.task.category === 'bespruehen') && t.task.recurrence === 'interval';
   const askSoil = onSoil && t.status === 'done' && t.task.category === 'giessen' && t.task.recurrence === 'interval' && !t.soil;
   return (
     <div className="stack" style={{ gap: 6 }}>
@@ -118,9 +127,15 @@ export function TodoItem({ t, busy, onToggle, onSoil }: { t: Todo; busy: boolean
         <span className="row" style={{ gap: 6 }}><TaskChip category={t.task.category} />{t.plant && <span className="small muted">{t.plant.title}</span>}</span>
         <span className={!done && (t.overdue || t.task.urgent) ? 'when urgent' : done ? 'small muted' : 'when'}>{whenText(t)}</span>
         {!done && t.legal_adjustment && <span className="small" style={{ color: 'var(--legal)', fontWeight: 700 }}>{t.legal_adjustment.startsWith('Verschoben') ? '§ verschoben (Vogelschutzzeit)' : '§ Zeitraum angepasst (Vogelschutzzeit)'}</span>}
-        {t.soil && <span className="small muted">Erde vorher: {SOIL.find(([k]) => k === t.soil)?.[1]}</span>}
+        {!done && t.task.amount_ml && <span className="small">ca. {t.task.amount_ml >= 1000 ? `${(t.task.amount_ml / 1000).toLocaleString('de-DE')} l` : `${t.task.amount_ml} ml`}</span>}
+        {t.soil && <span className="small muted">{t.status === 'skipped' ? 'Noch zu feucht – schaut in ein paar Tagen wieder' : `Erde vorher: ${SOIL.find(([k]) => k === t.soil)?.[1]}`}</span>}
       </a>
     </div>
+    {canWait && (
+      <button className="btn small" style={{ marginLeft: 44, alignSelf: 'flex-start', minHeight: 44 }} disabled={busy} onClick={onLater}>
+        {t.task.category === 'giessen' ? 'Erde noch zu feucht – später' : 'Noch feucht genug – später'}
+      </button>
+    )}
     {askSoil && (
       <div className="stack" style={{ gap: 6, paddingLeft: 44 }}>
         <span className="small">Wie war die Erde vor dem Gießen? (passt den Rhythmus an)</span>

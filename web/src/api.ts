@@ -66,7 +66,7 @@ export interface PlantIn {
   species_id: string; cultivar_id: string | null; standort_id: string; nickname: string | null; form: Form | null;
   rootstock: string | null; planted_year: number | null; girth_cm: number | null; in_container: boolean; notes: string;
   window_dir?: keyof typeof WINDOWS | null; window_distance?: keyof typeof DISTANCES | null;  // indoor only (M11)
-  pot_cm?: number | null; pot_material?: keyof typeof POT_MATERIALS | null;
+  pot_cm?: number | null; pot_material?: keyof typeof POT_MATERIALS | null; height_cm?: number | null;
 }
 export interface Plant extends Omit<PlantIn, 'species_id' | 'cultivar_id' | 'standort_id'> {
   id: string;
@@ -96,6 +96,7 @@ export interface TaskIn {
   plant_id: string | null; title: string; category: Category; cut_type: CutType | null; instructions: string; recurrence: Recurrence;
   due_date: string | null; month_from: number | null; month_to: number | null; interval_days: number | null;
   winter_interval_days?: number | null;  // Nov–Feb (interval only, M11)
+  amount_ml?: number | null;  // watering: how much each time
   start_date: string | null; urgent: boolean;
   pheno_phase?: PhaseKey | null; pheno_offset?: number; pheno_window?: number;  // follow the season (yearly only)
 }
@@ -112,6 +113,7 @@ export interface Product { name: string; kind: string; npk: string | null; dose:
 export interface Task extends TaskIn {
   id: string; plant: { id: string; title: string } | null; source: string; enabled: boolean; notes: LegalNote[];
   products: Product[]; why: string;  // filled for tasks from the care plan
+  next_due?: string | null;  // the next open to-do
 }
 export interface Pest { name: string; time: string; prevent: string; treat: string }
 export interface CarePlan {
@@ -160,7 +162,7 @@ export interface Todo {
   note: string; done_at: string | null; legal_adjustment: string | null; notes: LegalNote[];
   soil?: Soil | null;  // watering: how the soil was (once)
   blocked_until: string | null;  // strong cut not allowed today (§ 39): first allowed day
-  task: { id: string; title: string; category: Category; urgent: boolean; instructions: string; recurrence: Recurrence };
+  task: { id: string; title: string; category: Category; urgent: boolean; instructions: string; recurrence: Recurrence; amount_ml?: number | null };
   plant: { id: string; title: string } | null;
 }
 export type Soil = 'feucht' | 'passt' | 'trocken';
@@ -213,6 +215,8 @@ export const api = {
   todo: (id: string) => request<Todo>('GET', `/todos/${enc(id)}`),
   done: (id: string, note?: string) => request<Todo>('POST', `/todos/${enc(id)}/done`, note === undefined ? {} : { note }),
   skip: (id: string, note?: string) => request<Todo>('POST', `/todos/${enc(id)}/skip`, note === undefined ? {} : { note }),
+  later: (id: string) => request<Todo>('POST', `/todos/${enc(id)}/later`),  // still moist: look again soon
+  doneNow: (taskId: string, note?: string) => request<Todo>('POST', `/tasks/${enc(taskId)}/done-now`, note ? { note } : {}),
   soil: (id: string, soil: Soil) => request<Todo>('POST', `/todos/${enc(id)}/soil`, { soil }),
   undo: (id: string) => request<Todo>('POST', `/todos/${enc(id)}/undo`),
   postpone: (id: string, to: string) => request<Todo>('POST', `/todos/${enc(id)}/postpone`, { to }),

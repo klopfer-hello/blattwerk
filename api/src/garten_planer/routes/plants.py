@@ -142,6 +142,7 @@ async def update_plant(pid: str, body: PlantIn, c: Conn, request: Request) -> Pl
                 plants.c.window_distance,
                 plants.c.pot_cm,
                 plants.c.pot_material,
+                plants.c.height_cm,
                 standorte.c.type,
             )
             .join(standorte, standorte.c.id == plants.c.standort_id)
@@ -159,7 +160,7 @@ async def update_plant(pid: str, body: PlantIn, c: Conn, request: Request) -> Pl
         watering = select(tasks.c.id).where(tasks.c.plant_id == pid, tasks.c.category.in_(INDOOR_CATEGORIES))
         await c.execute(update(tasks).where(tasks.c.id.in_(watering)).values(enabled=False))
         await c.execute(delete(todos).where(todos.c.task_id.in_(watering), todos.c.status == "open"))
-    room = ("window_dir", "window_distance", "pot_cm", "pot_material")  # light and pot set the watering rhythm
+    room = ("window_dir", "window_distance", "pot_cm", "pot_material", "height_cm")  # they set the watering
     changed_room = indoor and any(getattr(old, k) != getattr(body, k) for k in room)
     if moved or changed_room or (old.species_id, old.cultivar_id) != (body.species_id, body.cultivar_id):
         await queue_plan(c, pid, request.app.state.config.plan_daily_limit)

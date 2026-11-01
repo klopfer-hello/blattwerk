@@ -12,7 +12,8 @@ from garten_planer.routes.todos import TZ, now
 from tests.conftest import BASE
 
 H = {"Origin": BASE}
-OUTPUT_ONLY = ("id", "plant", "enabled", "source", "notes", "products", "why")  # task answer fields a PUT does not take
+# task answer fields a PUT does not take
+OUTPUT_ONLY = ("id", "plant", "enabled", "source", "notes", "products", "why", "next_due")
 
 
 def on(client: TestClient, day: date) -> None:

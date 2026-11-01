@@ -4,13 +4,13 @@
 // plants (links from the still-demo Heute/Kalender) render as DemoPlantDetail.
 import { useEffect, useRef, useState } from 'react';
 import {
-  ApiError, DIRECTIONS, DISTANCES, FORMS, GROWTH, INDOOR_TYPE, POT_MATERIALS, STANDORT_TYPES, api, type AiCandidate, type Candidate, type Direction, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
-  type HistoryItem, type PlanState, type Standort, type Task,
+  ApiError, CATEGORIES, DIRECTIONS, INDOOR_CATEGORIES, DISTANCES, FORMS, GROWTH, INDOOR_TYPE, POT_MATERIALS, STANDORT_TYPES, api, type AiCandidate, type Candidate, type Direction, type NameJob, type Form, type Light, type Plant, type PlantIn, type Species,
+  type Category, type HistoryItem, type Soil, type PlanState, type Standort, type Task,
 } from '../api';
 import { PhotoThumbs } from '../components/Photos';
 import { uploadPhoto } from '../photos';
 import { MONTHS, plantById, standortById } from '../mock/data';
-import { Back, Chip, Icon, Legal, TaskChip, timingText, Waiting } from '../components/ui';
+import { Back, Chip, Icon, Legal, TaskChip, deDate, localIso, timingText, Waiting } from '../components/ui';
 
 const LIGHT: Record<Light, { bg: string; fg: string }> = {
   sonnig: { bg: '#FDF1CF', fg: '#6B4A00' }, halbschattig: { bg: '#E9EEF0', fg: '#2F4550' }, schattig: { bg: '#E1E4EA', fg: '#2B3244' },
@@ -141,7 +141,7 @@ export function PlantDetail({ id }: { id: string }) {
     ['Zimmer', p.standort.name],
     ['Fenster', windowText(p)],
     ['Topf', p.pot_cm || p.pot_material ? [p.pot_cm ? `${p.pot_cm} cm` : '', p.pot_material ? POT_MATERIALS[p.pot_material] : ''].filter(Boolean).join(' ') : '–'],
-    ['Seit', p.planted_year?.toString() ?? '–'],
+    ['Höhe', p.height_cm ? `${p.height_cm} cm` : '–'],
   ] : [
     ['Standort', `${p.standort.name} · ${p.standort.light}`], ['Form', p.form ?? '–'], ['Gepflanzt', p.planted_year?.toString() ?? '–'],
     ['Im Kübel', p.in_container ? 'ja' : 'nein'], ...(p.rootstock ? [['Unterlage', p.rootstock]] : []),
@@ -176,7 +176,7 @@ export function PlantDetail({ id }: { id: string }) {
         ))}
       </div>
       {tab === 'plan' && <CarePlanBox state={plan} failed={planFailed} archived={p.archived} onMake={makePlan} onReload={() => setTick((t) => t + 1)} />}
-      {tab === 'plan' && <PlantTasks key={tasksKey} plantId={p.id} />}
+      {tab === 'plan' && <PlantTasks key={tasksKey} plantId={p.id} indoor={!!p.standort.indoor} archived={p.archived} />}
       {tab === 'pests' && (plan?.plan?.pests.length
         ? [...plan.plan.pests.map((x, i) => (
           <div key={i} className="outline stack" style={{ gap: 6 }}>
@@ -271,22 +271,93 @@ function SpeciesTraitsBox({ id, onSaved }: { id: string; onSaved: () => void }) 
   );
 }
 
-function PlantTasks({ plantId }: { plantId: string }) {
+function PlantTasks({ plantId, indoor, archived }: { plantId: string; indoor: boolean; archived: boolean }) {
   const [list, setList] = useState<Task[] | null>(null);
   const [failed, setFailed] = useState(false);
-  useEffect(() => { api.tasks(plantId).then(setList, () => setFailed(true)); }, [plantId]);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [msg, setMsg] = useState('');
+  const [soilFor, setSoilFor] = useState<string | null>(null);  // the to-do just watered: ask how the soil was
+  const load = () => api.tasks(plantId).then(setList, () => setFailed(true));
+  useEffect(() => { load(); }, [plantId]);  // eslint-disable-line react-hooks/exhaustive-deps
+  async function doneNow(t: Task) {   // done today, whenever it was due: an interval starts again from today
+    if (busy) return;
+    setBusy(t.id); setMsg('');
+    try {
+      const todo = await api.doneNow(t.id);
+      setSoilFor(t.category === 'giessen' && t.recurrence === 'interval' ? todo.id : null);
+      setMsg(`„${t.title}“ heute erledigt.`);
+      await load();
+    } catch (e) { setMsg(fail(e).message); } finally { setBusy(null); }
+  }
+  async function soil(how: Soil) {
+    if (!soilFor || busy) return;
+    setBusy(soilFor);
+    try { await api.soil(soilFor, how); setSoilFor(null); setMsg('Danke – der Gieß-Rhythmus ist angepasst.'); await load(); }
+    catch (e) { setMsg(fail(e).message); } finally { setBusy(null); }
+  }
   return (
     <div className="stack" style={{ gap: 8 }}>
       {failed && <p className="box" role="alert">Aufgaben konnten nicht geladen werden.</p>}
       {list?.length === 0 && <p className="box">Noch keine Aufgaben für diese Pflanze. Pflegeplan erstellen lassen oder selbst anlegen.</p>}
+      {msg && <p className="box" role="status">{msg}</p>}
+      {soilFor && (
+        <div className="outline stack" style={{ gap: 6 }}>
+          <span className="small">Wie war die Erde vor dem Gießen?</span>
+          <div className="row" role="group" aria-label="Erde vor dem Gießen" style={{ gap: 6 }}>
+            {([['feucht', 'noch feucht'], ['passt', 'passt'], ['trocken', 'knochentrocken']] as [Soil, string][]).map(([k, label]) => <button key={k} className="seg" onClick={() => soil(k)}>{label}</button>)}
+          </div>
+        </div>
+      )}
       {list?.map((t) => (
-        <a key={t.id} href={`#/aufgabe-bearbeiten/${t.id}`} className="card stack" style={{ gap: 4, textDecoration: 'none', color: 'var(--ink)', opacity: t.enabled ? 1 : 0.6 }}>
-          <span className="row" style={{ gap: 6 }}><TaskChip category={t.category} />{t.source === 'plan' && <span className="tiny">Pflegeplan</span>}{!t.enabled && <span className="tiny">pausiert</span>}</span>
-          <strong>{t.title}</strong>
-          <span className="small muted">{timingText(t)}</span>
-        </a>
+        <div key={t.id} className="card stack" style={{ gap: 6, opacity: t.enabled ? 1 : 0.6 }}>
+          <a href={`#/aufgabe-bearbeiten/${t.id}`} className="stack" style={{ gap: 4, textDecoration: 'none', color: 'var(--ink)' }}>
+            <span className="row" style={{ gap: 6 }}><TaskChip category={t.category} />{t.source === 'plan' && <span className="tiny">Pflegeplan</span>}{!t.enabled && <span className="tiny">pausiert</span>}</span>
+            <strong>{t.title}</strong>
+            <span className="small muted">{timingText(t)}{t.amount_ml ? ` · ca. ${t.amount_ml} ml` : ''}{t.next_due ? ` · nächstes Mal ${deDate(t.next_due)}` : ''}</span>
+          </a>
+          {!archived && t.enabled && t.recurrence !== 'once' && (
+            <button className="btn small" style={{ alignSelf: 'flex-start', minHeight: 44 }} disabled={busy === t.id} onClick={() => doneNow(t)}>
+              {busy === t.id ? <Waiting text="Trägt ein …" /> : <><Icon name="check" size={18} />Heute gemacht</>}
+            </button>
+          )}
+        </div>
       ))}
+      {!archived && <QuickDone plantId={plantId} indoor={indoor} onDone={(text) => { setMsg(text); load(); }} />}
       <a className="btn" href={`#/aufgabe-neu/${plantId}`}>+ Aufgabe für diese Pflanze</a>
+    </div>
+  );
+}
+
+/** Something done today that has no task (e.g. fertilised on a whim): kept as history. */
+function QuickDone({ plantId, indoor, onDone }: { plantId: string; indoor: boolean; onDone: (msg: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [category, setCategory] = useState<Category>(indoor ? 'giessen' : 'duengen');
+  const [title, setTitle] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState('');
+  const choices = (Object.keys(CATEGORIES) as Category[]).filter((c) => indoor || !INDOOR_CATEGORIES.includes(c));
+  async function save() {
+    if (busy) return;
+    setBusy(true); setErr('');
+    const what = title.trim() || CATEGORIES[category];
+    try {
+      const t = await api.createTask({ plant_id: plantId, title: what, category, cut_type: category === 'schnitt' ? 'pflege' : null, instructions: '', recurrence: 'once', due_date: localIso(), month_from: null, month_to: null, interval_days: null, start_date: null, urgent: false });
+      await api.doneNow(t.id);
+      setOpen(false); setTitle('');
+      onDone(`„${what}“ für heute eingetragen.`);
+    } catch (e) { setErr(fail(e).message); } finally { setBusy(false); }
+  }
+  if (!open) return <button className="btn" onClick={() => setOpen(true)}><Icon name="check" size={18} />Heute erledigt: etwas anderes …</button>;
+  return (
+    <div className="outline stack" style={{ gap: 10 }}>
+      <span className="label">Was hast du heute gemacht?</span>
+      <div className="row" role="group" aria-label="Art">
+        {choices.map((c) => <button key={c} className="seg" aria-pressed={category === c} onClick={() => setCategory(c)}>{CATEGORIES[c]}</button>)}
+      </div>
+      <div className="field"><label htmlFor="qd">Beschreibung (optional)</label><input id="qd" className="input" maxLength={120} value={title} onChange={(e) => setTitle(e.target.value)} placeholder={CATEGORIES[category]} /></div>
+      {err && <span className="small" role="alert" style={{ color: 'var(--urgent)' }}>{err}</span>}
+      <div className="grid2"><button className="btn" onClick={() => setOpen(false)}>Abbrechen</button><button className="btn primary" onClick={save} disabled={busy}>{busy ? 'Speichert …' : 'Eintragen'}</button></div>
+      <span className="tiny">Steht danach im Verlauf. Für Wiederkehrendes lieber „Heute gemacht“ bei der Aufgabe – das setzt den Rhythmus zurück.</span>
     </div>
   );
 }
@@ -323,7 +394,7 @@ export function PlantForm({ id }: { id?: string }) {
   useEffect(() => {
     if (!id) return;
     api.plant(id).then((p) => {
-      setV({ species_id: p.species.id, cultivar_id: p.cultivar?.id ?? null, standort_id: p.standort.id, nickname: p.nickname, form: p.form, rootstock: p.rootstock, planted_year: p.planted_year, girth_cm: p.girth_cm, in_container: p.in_container, notes: p.notes, window_dir: p.window_dir ?? null, window_distance: p.window_distance ?? null, pot_cm: p.pot_cm ?? null, pot_material: p.pot_material ?? null });
+      setV({ species_id: p.species.id, cultivar_id: p.cultivar?.id ?? null, standort_id: p.standort.id, nickname: p.nickname, form: p.form, rootstock: p.rootstock, planted_year: p.planted_year, girth_cm: p.girth_cm, in_container: p.in_container, notes: p.notes, window_dir: p.window_dir ?? null, window_distance: p.window_distance ?? null, pot_cm: p.pot_cm ?? null, pot_material: p.pot_material ?? null, height_cm: p.height_cm ?? null });
       setPicked({ label: p.species.german, latin: p.species.latin });
     }, (e) => setError(fail(e)));
   }, [id]);
@@ -412,7 +483,7 @@ export function PlantForm({ id }: { id?: string }) {
         cultivarId = (await api.createCultivar(v.species_id, newSorte.trim())).id;
       }
       const body = indoor ? { ...v, cultivar_id: cultivarId, in_container: true }
-        : { ...v, cultivar_id: cultivarId, window_dir: null, window_distance: null, pot_cm: null, pot_material: null };
+        : { ...v, cultivar_id: cultivarId, window_dir: null, window_distance: null, pot_cm: null, pot_material: null, height_cm: null };
       const p = id ? await api.updatePlant(id, body) : await api.createPlant(body);
       window.location.hash = `#/pflanze/${p.id}`;
     } catch (e) { setError(fail(e)); } finally { setSaving(false); }
@@ -557,6 +628,7 @@ function IndoorFields({ v, set, num, windows }: { v: PlantIn; set: (p: Partial<P
       {windows.length > 1 && <Segments label="Welches Fenster ist am nächsten?" options={several} value={v.window_dir as Direction | null} onChange={(k) => set({ window_dir: k })} />}
       {windows.length > 0 && <Segments label="Abstand zum Fenster" options={DISTANCES} value={v.window_distance} onChange={(k) => set({ window_distance: k })} />}
       <div className="grid2">
+        <div className="field"><label htmlFor="height">Höhe der Pflanze (cm)</label><input id="height" className="input" inputMode="numeric" value={v.height_cm ?? ''} onChange={(e) => set({ height_cm: num(e.target.value) })} /></div>
         <div className="field"><label htmlFor="pot">Topf Ø (cm)</label><input id="pot" className="input" inputMode="numeric" value={v.pot_cm ?? ''} onChange={(e) => set({ pot_cm: num(e.target.value) })} /></div>
         <div className="field"><label htmlFor="mat">Topf-Material</label>
           <select id="mat" className="input" value={v.pot_material ?? ''} onChange={(e) => set({ pot_material: (e.target.value || null) as PlantIn['pot_material'] })}>
@@ -565,7 +637,7 @@ function IndoorFields({ v, set, num, windows }: { v: PlantIn; set: (p: Partial<P
           </select>
         </div>
       </div>
-      <span className="tiny">Licht, Topf und Jahreszeit bestimmen den Gieß-Rhythmus. Frostwarnungen und Schnittregeln gelten drinnen nicht.</span>
+      <span className="tiny">Licht, Größe, Topf und Jahreszeit bestimmen, wie oft und wie viel gegossen wird. Frostwarnungen und Schnittregeln gelten drinnen nicht.</span>
     </div>
   );
 }

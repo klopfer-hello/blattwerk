@@ -87,7 +87,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
   useEffect(() => {
     if (!id) return;
     api.task(id).then((t) => {
-      const { id: _i, plant: _p, source, enabled: on, notes: _n, products, why, ...rest } = t;
+      const { id: _i, plant: _p, source, enabled: on, notes: _n, products, why, next_due: _d, ...rest } = t;
       setV(rest); setEnabled(on); setFromPlan({ source, products, why });
       setSeason(rest.recurrence === 'interval' && rest.month_from != null && rest.month_to != null);
     }, (e) => setError(e instanceof ApiError ? e : new ApiError(0, msg(e))));
@@ -104,6 +104,7 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
       month_from: v.recurrence === 'yearly' || (v.recurrence === 'interval' && season) ? v.month_from : null,
       month_to: v.recurrence === 'yearly' || (v.recurrence === 'interval' && season) ? v.month_to : null,
       winter_interval_days: v.recurrence === 'interval' ? v.winter_interval_days ?? null : null,
+      amount_ml: v.category === 'giessen' ? v.amount_ml ?? null : null,
       pheno_phase: v.recurrence === 'yearly' ? v.pheno_phase ?? null : null,
       interval_days: v.recurrence === 'interval' ? v.interval_days : null, start_date: v.recurrence === 'interval' ? v.start_date : null,
     };
@@ -144,6 +145,9 @@ export function TaskForm({ id, plantId }: { id?: string; plantId?: string }) {
           {categories.map((c) => <button key={c} className="seg" aria-pressed={v.category === c} onClick={() => set({ category: c, cut_type: c === 'schnitt' ? v.cut_type ?? 'pflege' : null })}>{CATEGORIES[c]}</button>)}
         </div>
       </div>
+      {v.category === 'giessen' && (
+        <div className="field"><label htmlFor="ml">Menge pro Gießen (ml, optional)</label><input id="ml" className="input" inputMode="numeric" value={v.amount_ml ?? ''} onChange={(e) => set({ amount_ml: e.target.value ? Number(e.target.value) : null })} aria-invalid={!!fieldErr('amount_ml')} /></div>
+      )}
       {v.category === 'schnitt' && (
         <div className="stack">
           <span className="label">Art des Schnitts</span>

@@ -332,6 +332,7 @@ async def _plan_facts(c: AsyncConnection, plant_id: str) -> PlanFacts:
         window_distance=r.window_distance,
         pot_cm=r.pot_cm,
         pot_material=r.pot_material,
+        height_cm=r.height_cm,
     )
 
 

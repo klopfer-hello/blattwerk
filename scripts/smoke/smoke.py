@@ -61,7 +61,7 @@ def seed() -> dict[str, str]:
         "kuebel": {"species_id": "malus-domestica", "standort_id": sites["kuebelplatz"], "in_container": True,
                    "nickname": "Säulenapfel Terrasse"},
         "zimmer": {"species_id": "monstera-deliciosa", "standort_id": sites["zimmer"],
-                   "window_distance": "bis_1m", "pot_cm": 24, "pot_material": "kunststoff"},
+                   "window_distance": "bis_1m", "pot_cm": 24, "pot_material": "kunststoff", "height_cm": 60},
     }.items():  # fmt: skip
         plants[key] = api("POST", "/plants", body)["id"]  # type: ignore[index]
     m = date.today().month
@@ -75,7 +75,7 @@ def seed() -> dict[str, str]:
         {"title": "Rosen schneiden", "category": "schnitt", "cut_type": "pflege", "recurrence": "yearly",
          "month_from": 3, "month_to": 4, "pheno_phase": "erstfruehling"},
         {"title": "Gießen", "category": "giessen", "recurrence": "interval", "interval_days": 7,
-         "winter_interval_days": 10, "plant_id": plants["zimmer"], "instructions": "Obere 2 cm trocken? Dann gießen."},
+         "winter_interval_days": 10, "amount_ml": 300, "plant_id": plants["zimmer"], "instructions": "Obere 2 cm trocken? Dann gießen."},
         {"title": "Blätter abstauben", "category": "entstauben", "recurrence": "interval", "interval_days": 45,
          "plant_id": plants["zimmer"]},
     ]  # fmt: skip
@@ -156,6 +156,16 @@ def large_view(page: Page, size: str, problems: list[str]) -> None:
         problems.append(f"{size}/chat-foto: large view does not open or close")
 
 
+def done_now(page: Page, problems: list[str]) -> None:
+    """Plant page: "Heute gemacht" on a task closes its next to-do and restarts the rhythm."""
+    try:
+        page.get_by_role("button", name="Heute gemacht").first.click()
+        page.wait_for_function("() => document.querySelector('main').innerText.includes('heute erledigt')", timeout=8000)
+        page.screenshot(path=str(OUT / "iphone-zimmerpflanze-heute.png"), full_page=True)
+    except Exception:
+        problems.append("iphone/zimmerpflanze: 'Heute gemacht' does not work")
+
+
 def soil(page: Page, problems: list[str]) -> None:
     """Indoor watering: tick it off, answer how the soil was (the rhythm adapts)."""
     try:
@@ -203,6 +213,8 @@ def main() -> None:
                     large_view(page, size, problems)
                 if name == "heute" and size == "iphone":
                     soil(page, problems)
+                if name == "zimmerpflanze" and size == "iphone":
+                    done_now(page, problems)
             ctx.close()
         browser.close()
     for n in sorted(set(notes)):

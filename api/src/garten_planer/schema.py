@@ -126,6 +126,7 @@ plants = Table(
     Column("window_distance", Text),
     Column("pot_cm", SmallInteger),
     Column("pot_material", Text),
+    Column("height_cm", SmallInteger),  # indoor: the size decides how much water (M11)
     Column("notes", Text, nullable=False),
     Column("archived_at", DateTime(timezone=True)),
     Column("created_at", DateTime(timezone=True), nullable=False),
@@ -142,6 +143,7 @@ plants = Table(
     CheckConstraint(_in("window_distance", WINDOW_DISTANCE), name="window_distance"),
     CheckConstraint("pot_cm BETWEEN 3 AND 200", name="pot_cm"),
     CheckConstraint(_in("pot_material", POT_MATERIAL), name="pot_material"),
+    CheckConstraint("height_cm BETWEEN 1 AND 1000", name="height_cm"),
 )
 
 # Watering, misting and dusting only for indoor plants (M11); garden plants never get watering (F-CP-6).
@@ -165,6 +167,7 @@ tasks = Table(
     Column("month_to", SmallInteger),
     Column("interval_days", Integer),
     Column("winter_interval_days", Integer),  # interval in Nov-Feb (indoor watering, M11)
+    Column("amount_ml", Integer),  # watering: how much each time (from pot and plant size)
     Column("start_date", Date),
     Column("pheno_phase", Text),  # F-WX-3: window from this phase start (M7); month window = fallback
     Column("pheno_offset", SmallInteger, nullable=False, server_default="0"),
@@ -204,6 +207,7 @@ tasks = Table(
         "winter_interval_days IS NULL OR (recurrence = 'interval' AND winter_interval_days > 0)",
         name="winter_interval",
     ),
+    CheckConstraint("amount_ml IS NULL OR (category = 'giessen' AND amount_ml BETWEEN 10 AND 20000)", name="amount_ml"),
 )
 
 todos = Table(

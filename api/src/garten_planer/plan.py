@@ -81,10 +81,12 @@ Deutsch, kurz und handlungsorientiert.
 
 Regeln:
 - Gießen als eigene Aufgabe: category "giessen", recurrence "interval", "interval_days" (Frühling bis Herbst) und
-  "winter_interval_days" (November bis Februar, meist länger). Richte die Tage nach Art, Licht (Fensterrichtung,
-  Abstand zum Fenster), Topfgröße und Topfmaterial (Ton trocknet schneller als Kunststoff) und Heizungsluft im
-  Winter. Sukkulenten und Kakteen deutlich seltener, Farne und Calathea öfter. In "instructions" wie viel und woran
-  man erkennt, dass es Zeit ist (Fingerprobe, Topfgewicht), und Staunässe vermeiden.
+  "winter_interval_days" (November bis Februar, meist länger), dazu "amount_ml": wie viel Wasser pro Gießen in ml
+  (aus Topfgröße und Pflanzenhöhe; große Pflanzen in großen Töpfen brauchen mehr, aber nicht unbedingt öfter).
+  Richte die Tage nach Art, Licht (Fensterrichtung, Abstand zum Fenster), Topfgröße, Topfmaterial (Ton trocknet
+  schneller als Kunststoff) und Heizungsluft im Winter. Sukkulenten und Kakteen deutlich seltener, Farne und
+  Calathea öfter. In "instructions" woran man erkennt, dass es Zeit ist (Fingerprobe, Topfgewicht), und
+  Staunässe vermeiden.
 - Besprühen (category "bespruehen", Intervall in Tagen): für Pflanzen, die hohe Luftfeuchte mögen (Farne,
   Calathea, Orchideen-Luftwurzeln, Tillandsien, viele Tropenpflanzen), im Winter bei Heizungsluft öfter
   ("winter_interval_days" kürzer). NICHT bei Sukkulenten, Kakteen und behaarten oder samtigen Blättern (Usambara-
@@ -133,6 +135,7 @@ class _SchemaTask(BaseModel):
     month_to: int | None
     interval_days: int | None
     winter_interval_days: int | None
+    amount_ml: int | None
     pheno_phase: (
         Literal[
             "vorfruehling",
@@ -236,6 +239,7 @@ class PlanFacts:
     window_distance: str | None = None
     pot_cm: int | None = None
     pot_material: str | None = None
+    height_cm: int | None = None
 
     @property
     def indoor(self) -> bool:
@@ -256,6 +260,7 @@ def build_prompt(f: PlanFacts) -> str:
             "abstand_zum_fenster": f.window_distance or "unbekannt",
             "topf_cm": f.pot_cm,
             "topf_material": f.pot_material or "unbekannt",
+            "hoehe_cm": f.height_cm,
             "duenger_vorliebe": f.fertiliser,
         }
         return "Erstelle den Pflegeplan für diese Zimmerpflanze:\n" + json.dumps(room, ensure_ascii=False, indent=2)
@@ -332,9 +337,16 @@ def _int(v: Any, low: int, high: int, default: int) -> int:
 
 def _winter(t: dict[str, Any]) -> dict[str, Any]:
     """Indoor watering: the winter interval, clamped like the summer one; only for interval tasks."""
-    if t.get("recurrence") != "interval" or not isinstance(t.get("winter_interval_days"), int):
-        return {}
-    return {"winter_interval_days": _int(t["winter_interval_days"], 1, 3650, 1)}
+    out: dict[str, Any] = {}
+    if t.get("recurrence") == "interval" and isinstance(t.get("winter_interval_days"), int):
+        out["winter_interval_days"] = _int(t["winter_interval_days"], 1, 3650, 1)
+    return out
+
+
+def _amount(t: dict[str, Any], category: Any) -> dict[str, Any]:
+    if category == "giessen" and isinstance(t.get("amount_ml"), int):
+        return {"amount_ml": _int(t["amount_ml"], 10, 20000, 10)}
+    return {}
 
 
 def _trigger(t: dict[str, Any]) -> dict[str, Any]:
@@ -375,6 +387,8 @@ def sanitize(raw: dict[str, Any], indoor: bool = False) -> Plan:
                 continue
         if fields["category"] not in ("schnitt", "ernte") and CUTTING.search(str(fields["title"] or "")):
             fields["category"] = "schnitt"
+        if indoor:
+            fields |= _amount(t, fields["category"])  # only once the category is final
         cut = t.get("cut_type")
         cut = (cut if cut in ("pflege", "stark") else "stark") if fields["category"] == "schnitt" else None
         try:

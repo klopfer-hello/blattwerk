@@ -21,7 +21,7 @@ from typing import Annotated, Any
 from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Depends, Query
-from sqlalchemy import Row, and_, delete, func, insert, or_, select, update
+from sqlalchemy import Row, and_, case, delete, func, insert, or_, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncConnection
 
@@ -42,6 +42,7 @@ from garten_planer.schedule import (
     HORIZON_DAYS,
     Occurrence,
     TaskTiming,
+    in_season,
     interval_after,
     months_in_year,
     occurrences,
@@ -161,6 +162,7 @@ def _task_out(r: Row[Any], s: LegalSettings, day: date) -> Task:
         products=r.products,
         why=r.why,
         notes=_notes(r, s, months_in_year(_timing(r), day.year)),
+        next_due=getattr(r, "next_due", None),
     )
 
 
@@ -177,7 +179,9 @@ def _todo_out(r: Row[Any], day: date, s: LegalSettings) -> dict[str, Any]:
         "note": r.note,
         "soil": r.soil,
         "done_at": r.done_at,
-        "task": {k: getattr(r, k) for k in ("id", "title", "category", "urgent", "instructions", "recurrence")},
+        "task": {
+            k: getattr(r, k) for k in ("id", "title", "category", "urgent", "instructions", "recurrence", "amount_ml")
+        },
         "plant": {"id": r.plant_id, "title": r.plant_title} if r.plant_id else None,
         "legal_adjustment": r.legal_adjustment,
         "notes": _notes(r, s, _months_between(r.due_from, r.due_to)),
@@ -337,7 +341,11 @@ async def list_tasks(
     plant_id: Annotated[str | None, Query(max_length=120)] = None,
     retired: bool = False,  # also tasks of replaced care plans (history)
 ) -> list[Task]:
-    q = select(tasks, _plant_title, *FACTS).select_from(_plant_join).order_by(tasks.c.title)
+    is_open = (todos.c.task_id == tasks.c.id, todos.c.status == "open")
+    due_now = select(func.max(todos.c.due_from)).where(*is_open, todos.c.due_from <= day).scalar_subquery()
+    coming = select(func.min(todos.c.due_from)).where(*is_open, todos.c.due_from > day).scalar_subquery()
+    nxt = case((_active, func.coalesce(due_now, coming)), else_=None).label("next_due")
+    q = select(tasks, _plant_title, nxt, *FACTS).select_from(_plant_join).order_by(tasks.c.title)
     if not retired:
         q = q.where(~tasks.c.retired)
     if plant_id:
@@ -501,7 +509,14 @@ async def skip(todo_id: str, body: NoteIn, c: Conn, at: Now) -> dict[str, Any]:
 async def undo(todo_id: str, c: Conn, day: Today) -> dict[str, Any]:
     row = (
         await c.execute(
-            select(todos.c.task_id, todos.c.generation, tasks.c.generation.label("task_gen"), tasks.c.recurrence)
+            select(
+                todos.c.task_id,
+                todos.c.generation,
+                todos.c.period,
+                todos.c.note,
+                tasks.c.generation.label("task_gen"),
+                tasks.c.recurrence,
+            )
             .join(tasks)
             .where(todos.c.id == todo_id)
             .with_for_update(of=tasks)
@@ -520,7 +535,14 @@ async def undo(todo_id: str, c: Conn, day: Today) -> dict[str, Any]:
                 todos.c.postponed.is_(False),
             )
         )
-    await c.execute(update(todos).where(todos.c.id == todo_id).values(status="open", done_at=None, soil=None))
+    if row.period.startswith("extra-"):  # "heute gemacht" without a due to-do: history only, no to-do to reopen
+        await c.execute(delete(todos).where(todos.c.id == todo_id))
+        await materialize(c, day, [row.task_id])
+        return {"id": todo_id, "status": "removed"}
+    values: dict[str, Any] = {"status": "open", "done_at": None, "soil": None}
+    if row.note == WET_NOTE:  # "später" taken back (the longer rhythm stays: the soil was moist)
+        values["note"] = ""
+    await c.execute(update(todos).where(todos.c.id == todo_id).values(values))
     return await _todo(c, todo_id, day)
 
 
@@ -563,6 +585,77 @@ async def soil_feedback(todo_id: str, body: SoilIn, c: Conn, day: Today) -> dict
                                             todos.c.postponed.is_(False), todos.c.note == ""))  # fmt: skip
         await materialize(c, day, [row.id])
     return await _todo(c, todo_id, day)
+
+
+RECHECK_PART = 4  # "noch zu feucht": look again after a quarter of the rhythm (at least 2 days)
+WET_NOTE = "noch zu feucht"
+
+
+@router.post("/todos/{todo_id}/later")
+async def still_wet(todo_id: str, c: Conn, at: Now) -> dict[str, Any]:
+    """Watering or misting is due, but the soil (or the air) is still moist: skip it, water
+    less often from now on (like "noch feucht") and look again in a few days."""
+    day = at.date()
+    claimed = await c.execute(
+        update(todos)
+        .where(todos.c.id == todo_id, todos.c.status == "open", todos.c.due_from <= day)  # not before it is due
+        .values(status="skipped", done_at=at, soil="feucht", note=WET_NOTE)
+        .returning(todos.c.task_id, todos.c.generation)
+    )
+    got = claimed.first()
+    if got is None:
+        if (await c.execute(select(todos.c.id).where(todos.c.id == todo_id))).first() is None:
+            raise not_found("to-do")
+        raise ApiError(409, "only for an open watering or misting")
+    row = (await c.execute(select(tasks).where(tasks.c.id == got.task_id).with_for_update())).one()
+    if row.category not in ("giessen", "bespruehen") or row.recurrence != "interval":
+        raise ApiError(409, "only for an open watering or misting")  # rolls back
+    field = rhythm_field(day, _timing(row))
+    new = adjusted(getattr(row, field), "feucht")
+    await c.execute(update(tasks).where(tasks.c.id == row.id).values({field: new, "updated_at": datetime.now(UTC)}))
+    await c.execute(delete(todos).where(todos.c.task_id == row.id, todos.c.status == "open",
+                                        todos.c.postponed.is_(False), todos.c.note == ""))  # fmt: skip
+    again = in_season(_timing(row), day + timedelta(days=max(2, round(new / RECHECK_PART))))
+    await c.execute(
+        pg_insert(todos)
+        .values(id=uuid.uuid4().hex, task_id=row.id, generation=row.generation, period=f"recheck-{again.isoformat()}",
+                due_from=again, due_to=again, status="open", note="", postponed=False, created_at=datetime.now(UTC))
+        .on_conflict_do_nothing(constraint="uq_todos_task_period")
+    )  # fmt: skip
+    return await _todo(c, todo_id, day)
+
+
+@router.post("/tasks/{tid}/done-now")
+async def done_now(tid: str, body: NoteIn, c: Conn, at: Now) -> dict[str, Any]:
+    """Done today, whenever it was due ("heute gemacht" on the plant page): the next open
+    to-do is closed; without one the entry is history only. An interval counts from today."""
+    row = (await c.execute(select(tasks).where(tasks.c.id == tid).with_for_update())).first()
+    if row is None:
+        raise not_found("task")
+    if not row.enabled or row.retired:
+        raise ApiError(409, "task is paused")
+    await _check_plant(c, TaskIn.model_validate({k: getattr(row, k) for k in TaskIn.model_fields}))
+    values: dict[str, Any] = {"status": "done", "done_at": at}
+    if body.note is not None:
+        values["note"] = body.note
+    open_rows = (
+        await c.execute(select(todos.c.id, todos.c.due_from).where(todos.c.task_id == tid, todos.c.status == "open"))
+    ).all()
+    due = [r for r in open_rows if r.due_from <= at.date()]  # like Heute: the newest one due now, else the next
+    pick = max(due, key=lambda r: r.due_from) if due else min(open_rows, key=lambda r: r.due_from, default=None)
+    nxt = pick.id if pick is not None else None
+    if nxt is not None:
+        await c.execute(update(todos).where(todos.c.id == nxt).values(values))
+        todo_id = nxt
+    else:
+        todo_id = uuid.uuid4().hex
+        await c.execute(insert(todos).values(
+            id=todo_id, task_id=tid, generation=row.generation, period=f"extra-{todo_id[:12]}", due_from=at.date(),
+            due_to=at.date(), status="done", done_at=at, note=body.note or "", postponed=False,
+            created_at=datetime.now(UTC),
+        ))  # fmt: skip
+    await materialize(c, at.date(), [tid])  # an interval: the next one from today
+    return await _todo(c, todo_id, at.date())
 
 
 @router.post("/todos/{todo_id}/postpone")
