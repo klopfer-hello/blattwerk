@@ -1,7 +1,7 @@
 # API image. build: locked deps + the package (non-editable) into /app/.venv.
 # test: adds the dev tools and runs lint, types and tests (scripts/test.sh).
 # runtime: plain Python, non-root, only the venv.
-FROM ghcr.io/astral-sh/uv:0.13.1-python3.14-trixie-slim AS build
+FROM ghcr.io/astral-sh/uv:0.13.6-python3.14-trixie-slim AS build
 ENV UV_COMPILE_BYTECODE=1 UV_LINK_MODE=copy UV_PYTHON_DOWNLOADS=never
 WORKDIR /app
 COPY pyproject.toml uv.lock ./
