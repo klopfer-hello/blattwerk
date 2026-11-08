@@ -14,7 +14,7 @@ COPY tests ./tests
 RUN uv sync --frozen --no-editable
 CMD ["sh", "-c", "uv run --frozen --no-sync ruff check . && uv run --frozen --no-sync ruff format --check . && uv run --frozen --no-sync mypy && uv run --frozen --no-sync pytest"]
 
-FROM python:3.14.7-slim-trixie AS runtime
+FROM python:3.15.0-slim-trixie AS runtime
 # the distribution's security fixes since the base image was built (CI: Trivy)
 RUN apt-get update -qq && apt-get upgrade -y -qq --no-install-recommends >/dev/null && rm -rf /var/lib/apt/lists/*
 RUN useradd --system --uid 10001 --no-create-home app \
