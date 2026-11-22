@@ -1,5 +1,5 @@
 # Web UI: build with Node, serve the static files with unprivileged nginx.
-FROM node:24.22.0-slim AS build
+FROM node:24.22.2-slim AS build
 WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
